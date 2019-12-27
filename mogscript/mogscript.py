@@ -8,9 +8,9 @@ class Loader:
 	def fromString(code, **kargs):
 		if kargs.get('enableAsync'):
 			del kargs['enableAsync']
-			return AsyncParser(code, kargs)
+			return AsyncParser(code, **kargs)
 		else:
-			return Parser(code, kargs)
+			return Parser(code, **kargs)
 
 	@staticmethod
 	def fromFile(filepath, **kargs):
