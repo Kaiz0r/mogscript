@@ -1,0 +1,3 @@
+# mogscript
+
+Readme coming soon.
