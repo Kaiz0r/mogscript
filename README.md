@@ -64,7 +64,13 @@ And just like with any variable, you can {var: counter} to get it!
 Hm, which author is better... {choice: kaiz0r;mog}
 choice is another preset, and takes multiple arguments split with ;, and randomly returns one.
 ---
-Thats alot of presets! You can add your own command tags pretty easily too, either in the python code itself, or right here in-script, using the {CODE} tag. It's like META, but instead of turning the block in to vars, it turns it in to a python function that is accessible using the {} calls, for example, we name this one `test`, and you can use {test} to call it, and giving it arguments is as simple as {test: this is an argument}
+Thats alot of presets! 
+You can add your own command tags pretty easily too, either in the python code itself, or right here in-script, 
+using the {CODE} tag. 
+It's like META, but instead of turning the block in to vars, 
+it turns it in to a python function that is accessible using the {} calls, 
+for example, we name this one `test`, and you can use {test} to call it, 
+and giving it arguments is as simple as {test: this is an argument}
 ---
 {CODE: test}
 result = args[0]
@@ -72,8 +78,12 @@ return result.upper()
 ---
 Now if we run {test: shout}, this becomes SHOUT.
 Whatever is returned in the function is what the tag gets replaced with during parsing.
-Inside eval and code blocks, two values are exposed; `p` which is the main Parser class, so you can access things like other variables and functions, and `args`, a tuple of the arguments given to it.
-For the sake of order, code blocks are best defined early on in the line, as each block is processed in order by default, so the function wont be available until that particular code block has been parsed.
+Inside eval and code blocks, 
+two values are exposed; `p` which is the main Parser class, 
+so you can access things like other variables and functions, and `args`, a tuple of the arguments given to it.
+For the sake of order, code blocks are best defined early on in the line, 
+as each block is processed in order by default, 
+so the function wont be available until that particular code block has been parsed.
 ---
 Replacement stuff;
 %me% - when poll() is used(see below), it'll just show `me` 
@@ -104,8 +114,12 @@ f.parse() #runs through the blocks, and each parsed result is given to the parse
 #pass `partial=True` to parse() to only parse the META block and dump that to .vars
 
 for entry in f.parsed:
-  entry.parse() #each entry can be manually parsed, useful for if `partial` was used and they weren't parsed before, or they just need to be parsed again
-  if entry.valid(): #valid checks if .parsed has any content, useful if a block was only used for setting/eval and has no text, you can easily ignore them
+  entry.parse() 
+  #each entry can be manually parsed, 
+  useful for if `partial` was used and they weren't parsed before, or they just need to be parsed again
+  if entry.valid(): 
+  #valid checks if .parsed has any content, 
+  useful if a block was only used for setting/eval and has no text, you can easily ignore them
      print(entry.poll()) ##this gets all unreplaced tags currently in the body
      print(entry.parsed) #prints the new parsed body, after processing all tags
 
