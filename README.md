@@ -93,6 +93,14 @@ so the function wont be available until that particular code block has been pars
 Replacement stuff;
 %me% - when poll() is used(see below), it'll just show `me` 
 %me=A person; yourself% - will show `me`, but also `A person etc`, as a description
+---
+{IF: author=Kaiser}
+This block only shows if author is Kaiser! there is also NOT, instead of IF, for the reverse.
+If its capitalized at the start of a block, it checks the paramaters to decide if the entity block itself should be parsed.
+For small-scale, theres also; {if: author=Kaiser;The stuff before this is the check, this message is shown if the check is met.}
+Both ways have a NOT variant.
+---
+If you want delays between various processing for whatever reason, there is a preset {sleep: count} to sleep the process. Uses time.sleep() for default, and asyncio.sleep() for async.
 ```
 
 ```py
@@ -119,7 +127,7 @@ f.addReplacement(old, new)
 f.parse() #runs through the blocks, and each parsed result is given to the parsers `parsed` list
 #pass `partial=True` to parse() to only parse the META block and dump that to .vars
 
-for entry in f.parsed:
+for entry in f.entities:
   entry.parse() 
   #each entry can be manually parsed, 
   #useful for if `partial` was used and they weren't parsed before, or they just need to be parsed again
@@ -129,4 +137,10 @@ for entry in f.parsed:
      print(entry.poll()) ##this gets all unreplaced tags currently in the body
      print(entry.parsed) #prints the new parsed body, after processing all tags
 
+f.insert("You can add new entity blocks to the parser at any time!")
+
+#.walk is basically the same as .parse, but only parses entity blocks that aren't 
+already parsed, like ones added with .insert, or ones where the IF check failed.
+#both .parse and .walk return a plaintext output of all the parsed text
+out = f.walk()
 ```
