@@ -227,14 +227,14 @@ class Parser:
 					ent = Entity(self, entry)
 
 					if not partial:
-						if calls[0].startswith("IF"):
+						if len(calls) > 0 and calls[0].startswith("IF"):
 							ent.body = entry.replace("{"+calls[0]+"}", '')
 							v = calls[0].split(": ")[1]
 							key = v.split("=")[0]
 							value = v.split("=")[1]
 							if self.vars.get(key) == value:
 								ent.parse()
-						elif calls[0].startswith("NOT"):
+						elif len(calls) > 0 and calls[0].startswith("NOT"):
 							ent.body = entry.replace("{"+calls[0]+"}", '')
 							v = calls[0].split(": ")[1]
 							key = v.split("=")[0]
