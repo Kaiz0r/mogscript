@@ -1,8 +1,24 @@
-import re, random, os, textwrap
+import re, random, os, textwrap, asyncio, time
 
 class VersionError(Exception):
 	pass
-	
+
+class Mog:
+	@staticmethod
+	def load(**kargs):
+		if kargs.get('str'):
+			i = kargs['str']
+			del kargs['str']
+			return Loader.fromString(i, **kargs)
+		elif kargs.get('file'):
+			i = kargs['file']
+			del kargs['file']
+			return Loader.fromFile(i, **kargs)
+		elif kargs.get('dir'):
+			i = kargs['dir']
+			del kargs['dir']
+			return Scanner.read(i, **kargs)
+		
 class Loader:
 	@staticmethod
 	def fromString(code, **kargs):
@@ -50,19 +66,24 @@ class Parser:
 		self.__version = 1
 		self.body = script
 		self.rep = {}
-		self.parsed = []
+		self.entities = []
 		self.globals = {}
 		self.vars = {}
-		self.asyncs = []
+		self.blocks = []
+		
 		self.addGlobal('add', self.add)
 		self.addGlobal('sub', self.sub)
 		self.addGlobal('div', self.div)
 		self.addGlobal('mult', self.mult)
 		self.addGlobal('set', self.set)
-		self.addGlobal('get', self.get)
+		self.addGlobal('var', self.get)
 		self.addGlobal('choose', self.choose)
 		self.addGlobal('eval', self.eval)
-			
+		self.addGlobal('sleep', self.sleep)	
+		self.addGlobal('recheck', self.recheck)	
+		self.addGlobal('if', self.getif)
+		self.addGlobal('not', self.getnot)		
+		
 	def stream(self, code):
 		self.body += f"\n{code}"
 
@@ -75,7 +96,22 @@ class Parser:
 	
 	def choose(self, parser, *args):
 		return random.choice(list(args))
-		
+	
+	def recheck(self, parser, *args):
+		self.parse(partial=True)
+	
+	def getif(self, parser, *args):
+		key = args[0].split("=")[0]
+		value = args[0].split("=")[1]
+		if parser.vars.get(key) == value:
+			return args[1]
+			
+	def getnot(self, parser, *args):
+		key = args[0].split("=")[0]
+		value = args[0].split("=")[1]
+		if parser.vars.get(key) != value:
+			return args[1]	
+							
 	def add(self, parser, *args):
 		if not self.vars.get(args[0]):
 			self.vars[key] = "0"
@@ -117,15 +153,52 @@ class Parser:
 	def get(self, parser, *args):
 		return self.vars[args[0]]
 		
+	def sleep(self, parser, *args):
+		time.sleep(int(args[0]))	
+		
 	def eval(self, parser, *args):
 		for entry in args:
 			body = f'def func(p, args):\n{textwrap.indent(entry, "  ")}'
 			env = {'p': self}
 			exec(body, env)
 			return env['func'](self, [])
-						
+
+	def walk(self):
+		out = ""
+		for ent in self.entities:
+			if not ent.valid():
+				calls = re.findall('{(.+?)}', ent.body)	
+				if len(calls) > 0 and calls[0].startswith("IF"):
+					ent.body = ent.body.replace("{"+calls[0]+"}", '')
+					v = calls[0].split(": ")[1]
+					key = v.split("=")[0]
+					value = v.split("=")[1]
+					if self.vars.get(key) == value:
+						ent.parse()
+				elif len(calls) > 0 and calls[0].startswith("NOT"):
+					ent.body = ent.body.replace("{"+calls[0]+"}", '')
+					v = calls[0].split(": ")[1]
+					key = v.split("=")[0]
+					value = v.split("=")[1]
+					if self.vars.get(key) == value:
+						ent.parse()
+				else:
+					ent.parse()
+				if ent.valid():
+					out += ent.parsed
+		return out		
+		
+	def insert(self, body, ind=-1):
+		ent = Entity(self, body)
+		
+		if ind < 0:
+			self.entities.append(ent)
+		else:
+			self.entities.insert(ind, ent)
+			
 	def parse(self, partial=False):
-		self.parsed = []
+		self.entities = []
+		out = ""
 		for entry in self.body.split("---"):
 			if entry.split("\n")[0] == "{META}":
 				l = entry.replace("{META}", "").split("\n")
@@ -149,12 +222,32 @@ class Parser:
 					env = {'p': self}
 					exec(body, env)
 					self.addGlobal(name, env['func'])
+				
 				else:
 					ent = Entity(self, entry)
+
 					if not partial:
-						ent.parse()
-					self.parsed.append(ent)
-						
+						if calls[0].startswith("IF"):
+							ent.body = entry.replace("{"+calls[0]+"}", '')
+							v = calls[0].split(": ")[1]
+							key = v.split("=")[0]
+							value = v.split("=")[1]
+							if self.vars.get(key) == value:
+								ent.parse()
+						elif calls[0].startswith("NOT"):
+							ent.body = entry.replace("{"+calls[0]+"}", '')
+							v = calls[0].split(": ")[1]
+							key = v.split("=")[0]
+							value = v.split("=")[1]
+							if self.vars.get(key) == value:
+								ent.parse()
+						else:
+							ent.parse()
+					if ent.valid():
+						out += ent.parsed
+					self.entities.append(ent)
+		return out
+
 	def addReplacement(self, key, new):
 		self.rep[key.lower()] = new
 
@@ -214,19 +307,7 @@ class Entity:
 						name = c
 						other = ""
 
-					call = None
-					if name == "var":
-						call = self.parser.get
-					elif name == "set":
-						call = self.parser.set	
-					elif name == "add":
-						call = self.parser.add	
-					elif name == "sub":
-						call = self.parser.sub	
-					elif name == "eval":
-						call = self.parser.eval		
-					else:
-						call = self.parser.globals.get(name)
+					call = self.parser.globals.get(name)
 					
 					if call:	
 						r = call(self.parser, *other.split(";"))
@@ -255,19 +336,23 @@ class AsyncParser:
 		
 		self.body = script
 		self.rep = {}
-		self.parsed = []
+		self.entities = []
 		self.globals = {}
 		self.vars = {}
-		self.asyncs = []
+
 		self.addGlobal('add', self.add)
 		self.addGlobal('sub', self.sub)
 		self.addGlobal('div', self.div)
 		self.addGlobal('mult', self.mult)
 		self.addGlobal('set', self.set)
-		self.addGlobal('get', self.get)
+		self.addGlobal('var', self.get)
 		self.addGlobal('choose', self.choose)
 		self.addGlobal('eval', self.eval)
-			
+		self.addGlobal('sleep', self.sleep)
+		self.addGlobal('recheck', self.recheck)	
+		self.addGlobal('if', self.getif)
+		self.addGlobal('not', self.getnot)		
+				
 	def stream(self, code):
 		self.body += f"\n{code}"
 
@@ -277,10 +362,28 @@ class AsyncParser:
 	
 	def addGlobal(self, name, call):
 		self.globals[name.lower()] = call
-	
+
+	async def getif(self, parser, *args):
+		key = args[0].split("=")[0]
+		value = args[0].split("=")[1]
+		if parser.vars.get(key) == value:
+			return args[1]
+			
+	async def getnot(self, parser, *args):
+		key = args[0].split("=")[0]
+		value = args[0].split("=")[1]
+		if parser.vars.get(key) != value:
+			return args[1]	
+				
 	async def choose(self, parser, *args):
 		return random.choice(list(args))
-		
+	
+	async def sleep(self, parser, *args):
+		await asyncio.sleep(int(args[0]))	
+	
+	async def recheck(self, parser, *args):
+		await self.parse(partial=True)
+					
 	async def add(self, parser, *args):
 		if not self.vars.get(args[0]):
 			self.vars[key] = "0"
@@ -328,9 +431,43 @@ class AsyncParser:
 			env = {'p': self}
 			exec(body, env)
 			return await env['func'](self, [])
-						
+	
+	async def walk(self):
+		out = ""
+		for ent in self.entities:
+			if not ent.valid():
+				calls = re.findall('{(.+?)}', ent.body)	
+				if len(calls) > 0 and calls[0].startswith("IF"):
+					ent.body = ent.body.replace("{"+calls[0]+"}", '')
+					v = calls[0].split(": ")[1]
+					key = v.split("=")[0]
+					value = v.split("=")[1]
+					if self.vars.get(key) == value:
+						await ent.parse()
+				elif len(calls) > 0 and calls[0].startswith("NOT"):
+					ent.body = ent.body.replace("{"+calls[0]+"}", '')
+					v = calls[0].split(": ")[1]
+					key = v.split("=")[0]
+					value = v.split("=")[1]
+					if self.vars.get(key) == value:
+						await ent.parse()
+				else:
+					await ent.parse()
+				if ent.valid():
+					out += ent.parsed
+		return out		
+		
+	async def insert(self, body, ind=-1):
+		ent = AsyncEntity(self, body)
+		
+		if ind < 0:
+			self.entities.append(ent)
+		else:
+			self.entities.insert(ind, ent)
+			
 	async def parse(self, partial=False):
-		self.parsed = []
+		out = ""
+		self.entities = []
 		for entry in self.body.split("---"):
 			if entry.split("\n")[0] == "{META}":
 				l = entry.replace("{META}", "").split("\n")
@@ -354,12 +491,31 @@ class AsyncParser:
 		
 					env = {'p': self}
 					exec(body, env)
-					self.addGlobal(name, env['func'])
+					self.addGlobal(name, env['func'])					
 				else:
 					ent = AsyncEntity(self, entry)
 					if not partial:
-						await ent.parse()
-					self.parsed.append(ent)
+						if len(calls) > 0 and calls[0].startswith("IF"):
+							ent.body = entry.replace("{"+calls[0]+"}", '')
+							v = calls[0].split(": ")[1]
+							key = v.split("=")[0]
+							value = v.split("=")[1]
+							if self.vars.get(key) == value:
+								await ent.parse()
+						elif len(calls) > 0 and calls[0].startswith("NOT"):
+							ent.body = entry.replace("{"+calls[0]+"}", '')
+							v = calls[0].split(": ")[1]
+							key = v.split("=")[0]
+							value = v.split("=")[1]
+							if self.vars.get(key) == value:
+								await ent.parse()
+						else:
+							await ent.parse()
+							
+					if ent.valid():
+						out += ent.parsed
+					self.entities.append(ent)
+		return out
 						
 	def addReplacement(self, key, new):
 		self.rep[key.lower()] = new
@@ -420,19 +576,7 @@ class AsyncEntity:
 						name = c
 						other = ""
 
-					call = None
-					if name == "var":
-						call = self.parser.get
-					elif name == "set":
-						call = self.parser.set	
-					elif name == "add":
-						call = self.parser.add	
-					elif name == "sub":
-						call = self.parser.sub	
-					elif name == "eval":
-						call = self.parser.eval		
-					else:
-						call = self.parser.globals.get(name)
+					call = self.parser.globals.get(name)
 					
 					if call:	
 						r = await call(self.parser, *other.split(";"))
@@ -445,6 +589,7 @@ class AsyncEntity:
 					
 					else:
 						print(f"Invalid call {name} {other}")
+						
 				line = self.parser.replacing(item)
 				
 				if line != "" and item != " " and item != "	" and line != "\n":
