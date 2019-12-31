@@ -131,11 +131,25 @@ class Parser:
 	def parseMSymbol(self, entity, word):
 		if word.startswith("$"): #from vars
 			v = word.replace("$", '')
-			return self.vars.get(v, word)
-
+			end = None
+			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+				end = v[-1]
+				v = v.replace(end, '')
+			fin = self.vars.get(v, word)
+			if end:
+				fin = fin+end
+			return fin
+			
 		elif word.startswith("?"): #from entity locals
 			v = word.replace("?", '')
-			return entity.vars.get(v, word)
+			end = None
+			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+				end = v[-1]
+				v = v.replace(end, '')
+			fin = entity.vars.get(v, word)
+			if end:
+				fin = fin+end
+			return fin
 		else:
 			return word
 			
@@ -476,11 +490,25 @@ class AsyncParser:
 	async def parseMSymbol(self, entity, word):
 		if word.startswith("$"): #from vars
 			v = word.replace("$", '')
-			return self.vars.get(v, word)
-
+			end = None
+			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+				end = v[-1]
+				v = v.replace(end, '')
+			fin = self.vars.get(v, word)
+			if end:
+				fin = fin+end
+			return fin
+			
 		elif word.startswith("?"): #from entity locals
 			v = word.replace("?", '')
-			return entity.vars.get(v, word)
+			end = None
+			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+				end = v[-1]
+				v = v.replace(end, '')
+			fin = entity.vars.get(v, word)
+			if end:
+				fin = fin+end
+			return fin
 		else:
 			return word
 			
