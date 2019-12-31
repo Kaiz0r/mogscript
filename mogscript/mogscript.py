@@ -16,6 +16,13 @@ replaces with text gotten from the URL, requests.get or asyncio.get
 second arg is the block of html to return, or json key
 or if its an @arg, run function on url
 
+New format for inline function creation?
+*fn name: args, list, etc
+	print("Python code here")
+*end
+
+!transient
+if a line starts with this, doesn't convert to entity
 Add tag to turn block in to a class
 
 Make a parsing engine for Python, go, Ruby, js
@@ -262,7 +269,7 @@ class Parser:
 			env = {'p': self}
 			exec(body, env)
 			return env['func'](parser, [])
-
+			
 	def walk(self):
 		out = ""
 		for ent in self.entities:
@@ -319,7 +326,9 @@ class Parser:
 	def parse(self, partial=False):
 		self.entities = []
 		out = ""
+		
 		for entry in self.body.split("---"):
+			transient = False
 			if entry.split("\n")[0] == "{META}":
 				self.meta_header = entry
 				l = entry.replace("{META}", "").split("\n")
@@ -330,8 +339,7 @@ class Parser:
 				if self.vars.get('version'):
 					v = int(self.vars['version'])
 					if v != self.__version:
-						raise VersionError("Versions mismatch, script may be incompatible.")
-						
+						raise VersionError("Versions mismatch, script may be incompatible.")					
 				
 			else:
 				calls = re.findall('{(.+?)}', entry)
@@ -362,13 +370,91 @@ class Parser:
 							value = v.split("=")[1]
 							if self.vars.get(key) == value:
 								ent.parse()
+								
 						else:
-							ent.parse()
+							ent.body = self.extractFn(ent.body)
+							ent.body = self.extractCls(ent.body)
+							ent.transient = self.isTransient(ent.body)
+							if not ent.transient:
+								ent.parse()
 					if ent.valid():
 						out += ent.parsed
-					self.entities.append(ent)
+						
+						self.entities.append(ent)
+
 		return out
 
+	def extractFn(self, entity):
+		lines = entity.split("\n")
+		do = False
+		builder = ""
+		name = ""
+		for item in lines:
+			if item.startswith("*endfn"):
+				do = False
+				
+			if do:
+				builder += f"{item}\n"
+			
+			if item.startswith("*fn"):
+				do = True
+				name = item.split()[1]
+				builder += item.replace("*fn", 'def')+"(p, *args):\n"
+				
+		env = {'p': self}
+		
+		if not builder:
+			return entity
+			
+		try:
+			exec(builder, env)
+			self.globals[name] = env[name]
+			return entity.replace(builder, '')
+		except Exception as e:
+			print(e)
+			return entity.replace(builder, e)
+			
+	def extractCls(self, entity):
+		lines = entity.split("\n")
+		do = False
+		builder = ""
+		name = ""
+		for item in lines:
+			if item.startswith("*endcls"):
+				do = False
+				
+			if do:
+				builder += f"{item}\n"
+			
+			if item.startswith("*cls"):
+				do = True
+				name = item.split()[1]
+				if len(item.split()) > 2 and item.split()[2] in ['extends', 'expands']:
+					builder += f"class {name}("+item.split()[2]+"):\n"
+				else:
+					builder += item.replace("*cls", 'class')+":\n"
+				
+		env = {'p': self}
+		
+		if not builder:
+			return entity
+			
+		try:
+			exec(builder, env)
+			self.globals[name] = env[name]
+			return entity.replace(builder, '')
+		except Exception as e:
+			print(e)
+			return entity.replace(builder, e)
+			
+	def isTransient(self, entity):
+		lines = entity.split("\n")	
+		for line in lines:
+			if line == "! transient":
+				return True
+		
+		return False
+		
 	def addReplacement(self, key, new):
 		self.rep[key.lower()] = new
 
@@ -396,7 +482,8 @@ class Entity:
 		self.lines = []
 		self.parsed = ""
 		self.vars = {}
-	
+		self.transient = False
+		
 	def write(self, code):
 		self.body = code
 		self.parsed = ""
@@ -418,7 +505,7 @@ class Entity:
 		return replacements
 	
 	def valid(self):
-		if self.parsed != "" and self.parsed != " " and self.parsed != "	" and self.parsed != "\n":
+		if self.parsed != "" and self.parsed != " " and self.parsed != "	" and self.parsed != "\n" and not self.transient:
 			return True
 			
 	def parse(self):
@@ -449,13 +536,13 @@ class Entity:
 						print(f"Invalid call {name} {other}")
 				line = self.parser.replacing(item)
 				
-				if line != "" and item != " " and item != "	" and line != "\n":
+				if line != "" and line != " " and line != "	" and line != "\n":
 					self.lines.append(line)
 		
 		self.lines = self.parser.parseMSymbols(self, self.lines)
 			
 		for item in self.lines:
-			if line != "" and item != " " and item != "	" and line != "\n":
+			if item != "" and item != " " and item != "	" and item != "\n":
 				self.parsed += f"{item}\n"	
 				
 		
@@ -722,13 +809,88 @@ class AsyncParser:
 							if self.vars.get(key) == value:
 								await ent.parse()
 						else:
-							await ent.parse()
+							ent.body = self.extractFn(ent.body)
+							ent.body = self.extractCls(ent.body)
+							ent.transient = self.isTransient(ent.body)
+							if not ent.transient:
+								await ent.parse()
 							
 					if ent.valid():
 						out += ent.parsed
-					self.entities.append(ent)
+						self.entities.append(ent)
 		return out
-						
+
+	def extractFn(self, entity):
+		lines = entity.split("\n")
+		do = False
+		builder = ""
+		name = ""
+		for item in lines:
+			if item.startswith("*endfn"):
+				do = False
+				
+			if do:
+				builder += f"{item}\n"
+			
+			if item.startswith("*fn"):
+				do = True
+				name = item.split()[1]
+				builder += item.replace("*fn", 'async def')+"(p, *args):\n"
+				
+		env = {'p': self}
+		
+		if not builder:
+			return entity
+			
+		try:
+			exec(builder, env)
+			self.globals[name] = env[name]
+			return entity.replace(builder, '')
+		except Exception as e:
+			print(e)
+			return entity.replace(builder, e)
+			
+	def extractCls(self, entity):
+		lines = entity.split("\n")
+		do = False
+		builder = ""
+		name = ""
+		for item in lines:
+			if item.startswith("*endcls"):
+				do = False
+				
+			if do:
+				builder += f"{item}\n"
+			
+			if item.startswith("*cls"):
+				do = True
+				name = item.split()[1]
+				if len(item.split()) > 2 and item.split()[2] in ['extends', 'expands']:
+					builder += f"class {name}("+item.split()[2]+"):\n"
+				else:
+					builder += item.replace("*cls", 'class')+":\n"
+				
+		env = {'p': self}
+		
+		if not builder:
+			return entity
+			
+		try:
+			exec(builder, env)
+			self.globals[name] = env[name]
+			return entity.replace(builder, '')
+		except Exception as e:
+			print(e)
+			return entity.replace(builder, e)
+			
+	def isTransient(self, entity):
+		lines = entity.split("\n")	
+		for line in lines:
+			if line == "! transient":
+				return True
+		
+		return False
+								
 	def addReplacement(self, key, new):
 		self.rep[key.lower()] = new
 
@@ -756,7 +918,8 @@ class AsyncEntity:
 		self.lines = []
 		self.parsed = ""
 		self.vars = {}
-	
+		self.transient = False
+			
 	def write(self, code):
 		self.body = code
 		self.parsed = ""
@@ -778,7 +941,7 @@ class AsyncEntity:
 		return replacements
 	
 	def valid(self):
-		if self.parsed != "" and self.parsed != " " and self.parsed != "	" and self.parsed != "\n":
+		if self.parsed != "" and self.parsed != " " and self.parsed != "	" and self.parsed != "\n" and not self.transient:
 			return True
 			
 	async def parse(self):
@@ -811,7 +974,7 @@ class AsyncEntity:
 						
 				line = self.parser.replacing(item)
 				
-				if line != "" and item != " " and item != "	" and line != "\n":
+				if line != "" and line != " " and line != "	" and line != "\n":
 					self.lines.append(line)
 		
 		#print(f"LINES: {self.lines}")
@@ -819,7 +982,7 @@ class AsyncEntity:
 		#print(f"LINES AFT: {self.lines}")
 		
 		for item in self.lines:
-			if line != "" and item != " " and item != "	" and line != "\n":
+			if item != "" and item != " " and item != "	" and item != "\n":
 				self.parsed += f"{item}\n"	
 				
 		
