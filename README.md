@@ -53,6 +53,9 @@ and saved in to the parsers .vars value.
 You can get vars from the parser by using {var: author}, when parsed, this'll turn in to `Kai`
 You can also SET vars, including overwriting the meta tags, with {set: author=Mog}
 And now, {var: author} is Mog.
+NEW:
+You can use {local: author=Me} to set a local var for this entity block only, NOT the entire parser.
+And {local: author} gets it, same as var.
 ---
 var is basically a shortcut for `parser.vars[key] = value`, you can run it manually using the eval tag, 
 which runs raw Python code inline
@@ -101,6 +104,12 @@ For small-scale, theres also; {if: author=Kaiser;The stuff before this is the ch
 Both ways have a NOT variant.
 ---
 If you want delays between various processing for whatever reason, there is a preset {sleep: count} to sleep the process. Uses time.sleep() for default, and asyncio.sleep() for async.
+---
+NEW:
+You can use $author, or ?v as a replacement for {var: author} and {local: v}.
+They work in plain text blocks, or as arguments, like {local: ts=Me} {var: author=?ts}
+Now $author displays as Me.
+
 ```
 
 ```py
@@ -143,4 +152,13 @@ f.insert("You can add new entity blocks to the parser at any time!")
 already parsed, like ones added with .insert, or ones where the IF check failed.
 #both .parse and .walk return a plaintext output of all the parsed text
 out = f.walk()
+
+f.body = f.export()
+# Inserting doesn't update the body, so any parse runs after that, will forget insertions.
+# But, export dumps the current structure of entites and meta data back in to a string,
+# So, you can just update the body this way, and now any new parses will remember inserted blocks.
+# Passing update_meta=True to export() will replace the orginal meta header with a new one
+# populated by the global vars.
+# It always returns a string of the new body, but you can export it to file by passing;
+# f.export(file="/path/to/file")
 ```
