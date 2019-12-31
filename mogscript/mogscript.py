@@ -132,7 +132,7 @@ class Parser:
 		if word.startswith("$"): #from vars
 			v = word.replace("$", '')
 			end = None
-			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+			if v[-1] in [".", "?", "!", ";", ":", "~", ","]:
 				end = v[-1]
 				v = v.replace(end, '')
 			fin = self.vars.get(v, word)
@@ -143,7 +143,7 @@ class Parser:
 		elif word.startswith("?"): #from entity locals
 			v = word.replace("?", '')
 			end = None
-			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+			if v[-1] in [".", "?", "!", ";", ":", "~", ","]:
 				end = v[-1]
 				v = v.replace(end, '')
 			fin = entity.vars.get(v, word)
@@ -491,7 +491,7 @@ class AsyncParser:
 		if word.startswith("$"): #from vars
 			v = word.replace("$", '')
 			end = None
-			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+			if v[-1] in [".", "?", "!", ";", ":", "~", ","]:
 				end = v[-1]
 				v = v.replace(end, '')
 			fin = self.vars.get(v, word)
@@ -502,7 +502,7 @@ class AsyncParser:
 		elif word.startswith("?"): #from entity locals
 			v = word.replace("?", '')
 			end = None
-			if v[-1] in [".", "?", "!", ";", ":", "~"]:
+			if v[-1] in [".", "?", "!", ";", ":", "~", ","]:
 				end = v[-1]
 				v = v.replace(end, '')
 			fin = entity.vars.get(v, word)
