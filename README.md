@@ -10,17 +10,17 @@ This whole thing is a work-in-progress, not even a day old from conception at th
 To read a single file; (extension doesn't matter, as long as its a valid file with text)
 
 ```py
-from mogscript import Loader
+from mogscript import Mog
 
-f = Loader.fromFile('/home/kaiz0r/Documents/data.txt')
+f = Mog.load(file='/home/kaiz0r/Documents/data.txt')
 ```
 
 To read a string;
 
 ```py
-from mogscript import Loader
+from mogscript import Mog
 
-f = Loader.fromString("""This is some code.
+f = Mog.load(str="""This is some code.
 ---
 Seperate entity.
 """)
@@ -29,11 +29,11 @@ Seperate entity.
 To read all files in a directory, to check for specific extensions, pass a list to the functions `exts` keyword argument. Defaults to only loading `.txt` files. Instead of returning an object like the previous examples, it returns a list of those objects.
 
 ```py
-from mogscript import Scanner
+from mogscript import Mog
 
-ls = Scanner.read('/home/kaiz0r/Documents/')
+ls = Mog.load(dir='/home/kaiz0r/Documents/')
 ```
-Pass `enableAsync=True` to any of these calls to create an Asyncronous version of the Parser.
+Use `Mog.loadasync` to create an Asyncronous version of the Parser.
 
 Once you have a Parser object from one of these methods, you can start doing stuff!
 
@@ -109,7 +109,23 @@ NEW:
 You can use $author, or ?v as a replacement for {var: author} and {local: v}.
 They work in plain text blocks, or as arguments, like {local: ts=Me} {var: author=?ts}
 Now $author displays as Me.
+---
+! transient
+Adding a ! transient line will stop the parser from using this block, BUT any defined classes and functions here, do get added to parsers .globals
 
+*cls CTest
+	def __init__(self):
+		self.b = "lol"
+		self.count = 3
+
+	def fprint(self, prefix, suffix):
+		for i in range(0, self.count):
+			print(f"{prefix} {self.b} {suffix}")
+*endcls
+
+*fn bork
+	print( "no")
+*endfn
 ```
 
 ```py
