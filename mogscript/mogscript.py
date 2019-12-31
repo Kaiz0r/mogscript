@@ -1,5 +1,29 @@
 import re, random, os, textwrap, asyncio, time
 
+# TODO
+# Maybe have the remaining kargs passed to the constructor become env vars in the parser
+"""
+Todo
+{include: filename} 
+Replaces with the read text of a file 
+
+{sh: command}
+Run bash commands, replaces with output
+
+{http: url; p}
+{json: url; key}
+replaces with text gotten from the URL, requests.get or asyncio.get
+second arg is the block of html to return, or json key
+or if its an @arg, run function on url
+
+Add tag to turn block in to a class
+
+Make a parsing engine for Python, go, Ruby, js
+
+implement comments in code
+
+"""
+	
 class VersionError(Exception):
 	pass
 
@@ -18,7 +42,23 @@ class Mog:
 			i = kargs['dir']
 			del kargs['dir']
 			return Scanner.read(i, **kargs)
-		
+			
+	@staticmethod
+	async def loadasync(**kargs):
+		kargs['enableAsync'] = True
+		if kargs.get('str'):
+			i = kargs['str']
+			del kargs['str']
+			return Loader.fromString(i, **kargs)
+		elif kargs.get('file'):
+			i = kargs['file']
+			del kargs['file']
+			return Loader.fromFile(i, **kargs)
+		elif kargs.get('dir'):
+			i = kargs['dir']
+			del kargs['dir']
+			return Scanner.read(i, **kargs)		
+			
 class Loader:
 	@staticmethod
 	def fromString(code, **kargs):
@@ -69,22 +109,49 @@ class Parser:
 		self.entities = []
 		self.globals = {}
 		self.vars = {}
-		self.blocks = []
+		self.meta_header = ""
 		
 		self.addGlobal('add', self.add)
 		self.addGlobal('sub', self.sub)
 		self.addGlobal('div', self.div)
 		self.addGlobal('mult', self.mult)
-		self.addGlobal('set', self.set)
-		self.addGlobal('var', self.get)
+		self.addGlobal('var', self.var)
+		self.addGlobal('local', self.local)
 		self.addGlobal('choose', self.choose)
 		self.addGlobal('eval', self.eval)
 		self.addGlobal('sleep', self.sleep)	
 		self.addGlobal('recheck', self.recheck)	
 		self.addGlobal('if', self.getif)
 		self.addGlobal('not', self.getnot)		
+		self.addGlobal('print', self.spr)
+			
+	def spr(self, p, *args):
+		return ' '.join(args)
 		
-	def stream(self, code):
+	def parseMSymbol(self, entity, word):
+		if word.startswith("$"): #from vars
+			v = word.replace("$", '')
+			return self.vars.get(v, word)
+
+		elif word.startswith("?"): #from entity locals
+			v = word.replace("?", '')
+			return entity.vars.get(v, word)
+		else:
+			return word
+			
+	def parseMSymbols(self, entity, ls):
+		out = []
+		for item in ls:
+
+			phr = item.split(" ")
+
+			for word in phr:
+				item = item.replace(word, self.parseMSymbol(entity, word))
+
+			out.append(item)		
+		return out				
+		
+	def write(self, code):
 		self.body += f"\n{code}"
 
 	def read(self, filepath):
@@ -103,13 +170,13 @@ class Parser:
 	def getif(self, parser, *args):
 		key = args[0].split("=")[0]
 		value = args[0].split("=")[1]
-		if parser.vars.get(key) == value:
+		if self.vars.get(key) == value:
 			return args[1]
 			
 	def getnot(self, parser, *args):
 		key = args[0].split("=")[0]
 		value = args[0].split("=")[1]
-		if parser.vars.get(key) != value:
+		if self.vars.get(key) != value:
 			return args[1]	
 							
 	def add(self, parser, *args):
@@ -143,16 +210,35 @@ class Parser:
 		i = int(self.vars[args[0]])
 		i *= int(args[1])
 		self.vars[args[0]] = str(i)	
-					
-	def set(self, parser, *args):
+	
+	def var(self, parser, *args):
 		try:
-			self.vars[args[0]] = args[1]
-		except:
-			self.vars[args[0].split("=")[0]] = args[0].split("=")[1]
+			if "=" in args[0]:
+				self.vars[args[0].split("=")[0]] = self.parseMSymbol(parser, args[0].split("=")[1])
+			else:
+				if len(args) == 1:
+					return self.vars[args[0]]
+				elif len(args) == 2:
+					self.vars[args[0]] = args[1]
+				else:
+					self.vars[args[0]] = ':'.join(args[1:])	
+		except Exception as e:
+			return f"{e}"
+				
+	def local(self, parser, *args):
+		try:
+			if "=" in args[0]:
+				parser.vars[args[0].split("=")[0]] = self.parseMSymbol(parser, args[0].split("=")[1])
+			else:
+				if len(args) == 1:
+					return parser.vars[args[0]]
+				elif len(args) == 2:
+					parser.vars[args[0]] = args[1]
+				else:
+					parser.vars[args[0]] = ':'.join(args[1:])	
+		except Exception as e:
+			return f"{e}"
 			
-	def get(self, parser, *args):
-		return self.vars[args[0]]
-		
 	def sleep(self, parser, *args):
 		time.sleep(int(args[0]))	
 		
@@ -161,7 +247,7 @@ class Parser:
 			body = f'def func(p, args):\n{textwrap.indent(entry, "  ")}'
 			env = {'p': self}
 			exec(body, env)
-			return env['func'](self, [])
+			return env['func'](parser, [])
 
 	def walk(self):
 		out = ""
@@ -187,6 +273,26 @@ class Parser:
 				if ent.valid():
 					out += ent.parsed
 		return out		
+	
+	def export(self, **kargs):
+		body = ""
+		if kargs.get('update_meta'):
+			body = "{META}\n"
+			for item in self.vars:
+				body += f"{item}: {str(self.vars[item])}\n"
+		else:
+			body = self.meta_header
+			
+		for item in self.entities:
+			if item.body.startswith("\n"):
+				body += f"---{item.body}"
+			else:
+				body += f"---\n{item.body}"
+		if kargs.get('file'):	
+			with open(kargs['file'], 'w+') as f:
+				f.write(body)
+		
+		return body
 		
 	def insert(self, body, ind=-1):
 		ent = Entity(self, body)
@@ -201,6 +307,7 @@ class Parser:
 		out = ""
 		for entry in self.body.split("---"):
 			if entry.split("\n")[0] == "{META}":
+				self.meta_header = entry
 				l = entry.replace("{META}", "").split("\n")
 				for item in l:
 					if item != "\n" and item != "":
@@ -274,7 +381,13 @@ class Entity:
 		self.parser = parser
 		self.lines = []
 		self.parsed = ""
+		self.vars = {}
 	
+	def write(self, code):
+		self.body = code
+		self.parsed = ""
+		return self
+			
 	def poll(self):
 		replacements = []
 		for item in self.lines:
@@ -310,7 +423,8 @@ class Entity:
 					call = self.parser.globals.get(name)
 					
 					if call:	
-						r = call(self.parser, *other.split(";"))
+						args = self.parser.parseMSymbols(self, other.split(";"))
+						r = call(self, *args)
 						if r:
 							item = item.replace("{"+c+"}", r)
 						else:
@@ -323,6 +437,8 @@ class Entity:
 				
 				if line != "" and item != " " and item != "	" and line != "\n":
 					self.lines.append(line)
+		
+		self.lines = self.parser.parseMSymbols(self, self.lines)
 			
 		for item in self.lines:
 			if line != "" and item != " " and item != "	" and line != "\n":
@@ -339,21 +455,48 @@ class AsyncParser:
 		self.entities = []
 		self.globals = {}
 		self.vars = {}
-
+		self.meta_header = ""
 		self.addGlobal('add', self.add)
 		self.addGlobal('sub', self.sub)
 		self.addGlobal('div', self.div)
 		self.addGlobal('mult', self.mult)
-		self.addGlobal('set', self.set)
-		self.addGlobal('var', self.get)
+		self.addGlobal('var', self.var)
+		self.addGlobal('local', self.local)
 		self.addGlobal('choose', self.choose)
 		self.addGlobal('eval', self.eval)
 		self.addGlobal('sleep', self.sleep)
 		self.addGlobal('recheck', self.recheck)	
 		self.addGlobal('if', self.getif)
 		self.addGlobal('not', self.getnot)		
-				
-	def stream(self, code):
+		self.addGlobal('print', self.spr)
+			
+	async def spr(self, p, *args):
+		return ' '.join(args)
+		
+	async def parseMSymbol(self, entity, word):
+		if word.startswith("$"): #from vars
+			v = word.replace("$", '')
+			return self.vars.get(v, word)
+
+		elif word.startswith("?"): #from entity locals
+			v = word.replace("?", '')
+			return entity.vars.get(v, word)
+		else:
+			return word
+			
+	async def parseMSymbols(self, entity, ls):
+		out = []
+		for item in ls:
+
+			phr = item.split(" ")
+
+			for word in phr:
+				item = item.replace(word, await self.parseMSymbol(entity, word))
+
+			out.append(item)		
+		return out			
+	
+	def write(self, code):
 		self.body += f"\n{code}"
 
 	def read(self, filepath):
@@ -366,13 +509,13 @@ class AsyncParser:
 	async def getif(self, parser, *args):
 		key = args[0].split("=")[0]
 		value = args[0].split("=")[1]
-		if parser.vars.get(key) == value:
+		if self.vars.get(key) == value:
 			return args[1]
 			
 	async def getnot(self, parser, *args):
 		key = args[0].split("=")[0]
 		value = args[0].split("=")[1]
-		if parser.vars.get(key) != value:
+		if self.vars.get(key) != value:
 			return args[1]	
 				
 	async def choose(self, parser, *args):
@@ -415,22 +558,41 @@ class AsyncParser:
 		i = int(self.vars[args[0]])
 		i *= int(args[1])
 		self.vars[args[0]] = str(i)	
-					
-	async def set(self, parser, *args):
+		
+	async def var(self, parser, *args):
 		try:
-			self.vars[args[0]] = args[1]
-		except:
-			self.vars[args[0].split("=")[0]] = args[0].split("=")[1]
-			
-	async def get(self, parser, *args):
-		return self.vars[args[0]]
+			if "=" in args[0]:
+				self.vars[args[0].split("=")[0]] = await self.parseMSymbol(parser, args[0].split("=")[1])
+			else:
+				if len(args) == 1:
+					return self.vars[args[0]]
+				elif len(args) == 2:
+					self.vars[args[0]] = args[1]
+				else:
+					self.vars[args[0]] = ':'.join(args[1:])	
+		except Exception as e:
+			return f"{e}"
+				
+	async def local(self, parser, *args):
+		try:
+			if "=" in args[0]:
+				parser.vars[args[0].split("=")[0]] = await self.parseMSymbol(parser, args[0].split("=")[1])
+			else:
+				if len(args) == 1:
+					return parser.vars[args[0]]
+				elif len(args) == 2:
+					parser.vars[args[0]] = args[1]
+				else:
+					parser.vars[args[0]] = ':'.join(args[1:])	
+		except Exception as e:
+			return f"{e}"
 		
 	async def eval(self, parser, *args):
 		for entry in args:
 			body = f'async def func(p, args):\n{textwrap.indent(entry, "  ")}'
 			env = {'p': self}
 			exec(body, env)
-			return await env['func'](self, [])
+			return await env['func'](parser, [])
 	
 	async def walk(self):
 		out = ""
@@ -456,7 +618,27 @@ class AsyncParser:
 				if ent.valid():
 					out += ent.parsed
 		return out		
+	
+	def export(self, **kargs):
+		body = ""
+		if kargs.get('update_meta'):
+			body = "{META}\n"
+			for item in self.vars:
+				body += f"{item}: {str(self.vars[item])}\n"
+		else:
+			body = self.meta_header
+			
+		for item in self.entities:
+			if item.body.startswith("\n"):
+				body += f"---{item.body}"
+			else:
+				body += f"---\n{item.body}"
+		if kargs.get('file'):	
+			with open(kargs['file'], 'w+') as f:
+				f.write(body)
 		
+		return body
+			
 	async def insert(self, body, ind=-1):
 		ent = AsyncEntity(self, body)
 		
@@ -469,7 +651,9 @@ class AsyncParser:
 		out = ""
 		self.entities = []
 		for entry in self.body.split("---"):
+			
 			if entry.split("\n")[0] == "{META}":
+				self.meta_header = entry
 				l = entry.replace("{META}", "").split("\n")
 				for item in l:
 					if item != "\n" and item != "":
@@ -543,7 +727,13 @@ class AsyncEntity:
 		self.parser = parser
 		self.lines = []
 		self.parsed = ""
+		self.vars = {}
 	
+	def write(self, code):
+		self.body = code
+		self.parsed = ""
+		return self
+					
 	def poll(self):
 		replacements = []
 		for item in self.lines:
@@ -579,7 +769,8 @@ class AsyncEntity:
 					call = self.parser.globals.get(name)
 					
 					if call:	
-						r = await call(self.parser, *other.split(";"))
+						args = await self.parser.parseMSymbols(self, other.split(";"))
+						r = await call(self, *args)
 		
 						if r:
 							item = item.replace("{"+c+"}", r)
@@ -594,7 +785,11 @@ class AsyncEntity:
 				
 				if line != "" and item != " " and item != "	" and line != "\n":
 					self.lines.append(line)
-			
+		
+		#print(f"LINES: {self.lines}")
+		self.lines = await self.parser.parseMSymbols(self, self.lines)
+		#print(f"LINES AFT: {self.lines}")
+		
 		for item in self.lines:
 			if line != "" and item != " " and item != "	" and line != "\n":
 				self.parsed += f"{item}\n"	
