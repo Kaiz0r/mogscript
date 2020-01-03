@@ -5,6 +5,9 @@ This project is inspired by AI markup languages such as AIML and Rive. I saw how
 
 This whole thing is a work-in-progress, not even a day old from conception at the time of writing, so it's still pretty primitive. Things may change in time, get more advanced, who knows. For now, it's a fun side project for me.
 
+My end goal is for this to be used as sort of a modding language for my projects, or a way to easily extend things without needing to edit python code and risk breaking something, instead, can just write simple markup scripts, drop in the files, and let a reader compile them in to python things.
+I also use them as Discord channel templates currently, as a way to format text and automatically run a series of functions and send messages based on the script layout.
+
 ## Getting started
 
 To read a single file; (extension doesn't matter, as long as its a valid file with text)
@@ -43,19 +46,23 @@ Once you have a Parser object from one of these methods, you can start doing stu
 version: 1
 author: Kai
 description: This is a valid script, crazy!
+randomnumber: $RNG
 ---
 The above section is a META section. 
 If the first line of a `block`, each section seperated by `---`, 
 contains the special {META} tag, the body is converted in to variables, in the format of
 key: value
 and saved in to the parsers .vars value.
+Using the special RNG tag in the meta tags lets you easily assign a random number to a global
+Other supported special tags include $USER and $HOME to get OS environment vars.
 ---
 You can get vars from the parser by using {var: author}, when parsed, this'll turn in to `Kai`
 You can also SET vars, including overwriting the meta tags, with {set: author=Mog}
 And now, {var: author} is Mog.
 NEW:
 You can use {local: author=Me} to set a local var for this entity block only, NOT the entire parser.
-And {local: author} gets it, same as var.
+And {local: author} gets it, same as var. //BTW, this supports comments
+//any text after the slashes, doesn't get included
 ---
 var is basically a shortcut for `parser.vars[key] = value`, you can run it manually using the eval tag, 
 which runs raw Python code inline
@@ -102,6 +109,12 @@ This block only shows if author is Kaiser! there is also NOT, instead of IF, for
 If its capitalized at the start of a block, it checks the paramaters to decide if the entity block itself should be parsed.
 For small-scale, theres also; {if: author=Kaiser;The stuff before this is the check, this message is shown if the check is met.}
 Both ways have a NOT variant.
+The Block IF check supports advanced paramaters.
+If there's multiple checks seperated by ; then each one gets evaluated.
+By default, all the checks need to pass to evaluate the block.
+You can change this by having a special value in the first position, in the format of `need <type> <number>`
+For example, `need == 0` will only evaluate the block if all other checks fail, or `need > 0` will evaluate
+if ANY check passes.
 ---
 If you want delays between various processing for whatever reason, there is a preset {sleep: count} to sleep the process. Uses time.sleep() for default, and asyncio.sleep() for async.
 ---
