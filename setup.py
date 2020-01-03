@@ -2,13 +2,13 @@ from distutils.core import setup
 setup(
   name = 'mogscript',
   packages = ['mogscript'],
-  version = '20.01.03.1',
+  version = '20.01.03.2',
   license='gpl-3.0',
   description = 'A sub-script language for quick text processing and automation.',
   author = 'Kaiser',
   author_email = 'technomancer@gmx.com',
   url = 'https://github.com/Kaiz0r/mogscript',
-  download_url = 'https://github.com/Kaiz0r/mogscript/archive/20.01.03.1.tar.gz',
+  download_url = 'https://github.com/Kaiz0r/mogscript/archive/20.01.03.2.tar.gz',
   keywords = ['subscript', 'markup', 'script'],
   classifiers=[
     # How mature is this project? Common values are
