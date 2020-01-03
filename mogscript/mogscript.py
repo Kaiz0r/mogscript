@@ -90,6 +90,10 @@ class Scanner:
 			del kargs['exts']
 			
 		p = []
+		doAsync = False
+		if kargs.get('enableAsync'):
+			del kargs['enableAsync']
+			doAsync = True
 		for file in os.listdir(path):
 			do = False
 			for item in exts:
@@ -97,8 +101,7 @@ class Scanner:
 					do = True
 			if do:
 				with open(f"{path}{file}", 'r') as f:
-					if kargs.get('enableAsync'):
-						del kargs['enableAsync']
+					if doAsync:
 						p.append(AsyncParser(f.read(), **kargs))
 					else:
 						p.append(Parser(f.read(), **kargs))
