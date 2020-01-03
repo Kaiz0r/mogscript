@@ -17,18 +17,21 @@ or if its an @arg, run function on url
 {expr: expression}
 runs math expression (using the calc function used in athenas utils?)
 
-in block IF tag, add some math operators, < <= => > 
-special values for the META blocks, to auto-generate the meta
-$USER - host username
-$OS - operating system
-$RNG - random, 0.0 to 1.0
 
-make Entities always get added to list, even if checks fail, just dont parse
+for auto-meta values
+$OS - operating system
+$PYVER - python version
+
+
 {PROCESS: name} tag to define a new function processor the parser calls on the body
 if
 ! process: name
-is found, run the func on the body and dont parse
+is found, run the func on the body and dont parse, cause if the thing itself wants to parse, it can do it there
 
+strip out the replacement system cause it doesnt fit
+split it off in to its own function tag
+{repl: current; prompt}
+adds a new item to a list
 
 Make a parsing engine for Python, go, Ruby, js
 
@@ -105,12 +108,12 @@ class Parser:
 	def __init__(self, script, **kargs):
 		self.__version = 1
 		self.body = script
-		self.rep = {}
 		self.entities = []
 		self.globals = {}
 		self.vars = {}
 		self.meta_header = ""
 		
+		#Core globals
 		self.addGlobal('add', self.add)
 		self.addGlobal('sub', self.sub)
 		self.addGlobal('div', self.div)
@@ -124,7 +127,10 @@ class Parser:
 		self.addGlobal('if', self.getif)
 		self.addGlobal('not', self.getnot)		
 		self.addGlobal('print', self.spr)
-			
+		
+		#Extra stuff
+		self.addGlobal('repl', self.insertReplacement)	
+		
 	def spr(self, p, *args):
 		return ' '.join(args)
 		
@@ -174,7 +180,19 @@ class Parser:
 	
 	def addGlobal(self, name, call):
 		self.globals[name.lower()] = call
-	
+
+	def insertReplacement(self, p, *args):
+		if len(args) == 2:
+			if p.parser.vars.get('repls', {}).get(args[0], {}).get('new'):
+				return p.parser.vars.get('repls', {}).get(args[0]).get('new')
+			repls = p.parser.vars.get('repls', {})
+			repls[args[0]] = {'alias': args[1], 'new': ''}
+			p.parser.vars['repls'] = repls
+		return f'%{args[0]}% ({args[1].strip()})'
+		
+	def giveRepl(self, name, new):
+		self.vars.get('repls', {}).get(name, {})['new'] = new
+		
 	def choose(self, parser, *args):
 		return random.choice(list(args))
 	
@@ -510,25 +528,6 @@ class Parser:
 				return True
 		
 		return False
-		
-	def addReplacement(self, key, new):
-		self.rep[key.lower()] = new
-
-	def replacing(self, line):
-		out = line
-		calls = re.findall('%(.+?)%', line)
-		for item in calls:
-			if "=" in item:
-				n = item.split("=")[0]
-			else:
-				n = item
-			if self.rep.get(n):		
-				if type(self.rep[n]) == str:
-					out = out.replace(f"%{item}%", self.rep[n])
-				else:
-					out = out.replace(f"%{item}%", self.rep[n](self, item))
-				
-		return out
 				
 class Entity:
 	def __init__(self, parser, text):
@@ -546,21 +545,6 @@ class Entity:
 		self.body = code
 		self.parsed = ""
 		return self
-			
-	def poll(self):
-		replacements = []
-		for item in self.lines:
-			calls = re.findall('%(.+?)%', item)
-			for c in calls:
-				if "=" in c:
-					name = c.split("=")[1]
-					alias = c.split("=")[0]
-				else:
-					name = c
-					alias = c	
-					
-				replacements.append({'name': name, 'alias': alias})
-		return replacements
 	
 	def valid(self):
 		if self.parsed != "" and self.parsed != " " and self.parsed != "	" and self.parsed != "\n" and not self.transient:
@@ -592,10 +576,9 @@ class Entity:
 					
 					else:
 						print(f"Invalid call {name} {other}")
-				line = self.parser.replacing(item)
 				
-				if line != "" and line != " " and line != "	" and line != "\n":
-					self.lines.append(line)
+				if item != "" and item != " " and item != "	" and item != "\n":
+					self.lines.append(item)
 		
 		self.lines = self.parser.parseMSymbols(self, self.lines)
 			
@@ -610,7 +593,6 @@ class AsyncParser:
 		self.__version = 1
 		
 		self.body = script
-		self.rep = {}
 		self.entities = []
 		self.globals = {}
 		self.vars = {}
@@ -629,6 +611,9 @@ class AsyncParser:
 		self.addGlobal('not', self.getnot)		
 		self.addGlobal('print', self.spr)
 			
+		#Extras
+		self.addGlobal('repl', self.insertReplacement)
+		
 	async def spr(self, p, *args):
 		return ' '.join(args)
 		
@@ -679,6 +664,18 @@ class AsyncParser:
 	def addGlobal(self, name, call):
 		self.globals[name.lower()] = call
 
+	async def insertReplacement(self, p, *args):
+		if len(args) == 2:
+			if p.parser.vars.get('repls', {}).get(args[0], {}).get('new'):
+				return p.parser.vars.get('repls', {}).get(args[0]).get('new')
+			repls = p.parser.vars.get('repls', {})
+			repls[args[0]] = {'alias': args[1], 'new': ''}
+			p.parser.vars['repls'] = repls
+		return f'%{args[0]}% ({args[1].strip()})'
+		
+	async def giveRepl(self, name, new):
+		self.vars.get('repls', {}).get(name, {})['new'] = new
+	
 	async def getif(self, parser, *args):
 		key = args[0].split("=")[0]
 		value = args[0].split("=")[1]
@@ -1015,26 +1012,7 @@ class AsyncParser:
 				return True
 		
 		return False
-								
-	def addReplacement(self, key, new):
-		self.rep[key.lower()] = new
 
-	def replacing(self, line):
-		out = line
-		calls = re.findall('%(.+?)%', line)
-		for item in calls:
-			if "=" in item:
-				n = item.split("=")[0]
-			else:
-				n = item
-			if self.rep.get(n):		
-				if type(self.rep[n]) == str:
-					out = out.replace(f"%{item}%", self.rep[n])
-				else:
-					out = out.replace(f"%{item}%", self.rep[n](self, item))
-				
-		return out
-				
 class AsyncEntity:
 	def __init__(self, parser, text):
 		self._body = text
@@ -1051,21 +1029,6 @@ class AsyncEntity:
 		self.body = code
 		self.parsed = ""
 		return self
-					
-	def poll(self):
-		replacements = []
-		for item in self.lines:
-			calls = re.findall('%(.+?)%', item)
-			for c in calls:
-				if "=" in c:
-					name = c.split("=")[1]
-					alias = c.split("=")[0]
-				else:
-					name = c
-					alias = c	
-					
-				replacements.append({'name': name, 'alias': alias})
-		return replacements
 	
 	def valid(self):
 		if self.parsed != "" and self.parsed != " " and self.parsed != "	" and self.parsed != "\n" and not self.transient:
@@ -1098,11 +1061,10 @@ class AsyncEntity:
 					
 					else:
 						print(f"Invalid call {name} {other}")
-						
-				line = self.parser.replacing(item)
+					
 				
-				if line != "" and line != " " and line != "	" and line != "\n":
-					self.lines.append(line)
+				if item != "" and item != " " and item != "	" and item != "\n":
+					self.lines.append(item)
 		
 		#print(f"LINES: {self.lines}")
 		self.lines = await self.parser.parseMSymbols(self, self.lines)
