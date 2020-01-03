@@ -1,9 +1,7 @@
 import re, random, os, textwrap, asyncio, time
 
 # TODO
-# Maybe have the remaining kargs passed to the constructor become env vars in the parser
 """
-Todo
 {include: filename} 
 Replaces with the read text of a file 
 
@@ -16,19 +14,25 @@ replaces with text gotten from the URL, requests.get or asyncio.get
 second arg is the block of html to return, or json key
 or if its an @arg, run function on url
 
-New format for inline function creation?
-*fn name: args, list, etc
-	print("Python code here")
-*end
+{expr: expression}
+runs math expression (using the calc function used in athenas utils?)
 
-!transient
-if a line starts with this, doesn't convert to entity
-Add tag to turn block in to a class
+in block IF tag, add some math operators, < <= => > 
+special values for the META blocks, to auto-generate the meta
+$USER - host username
+$OS - operating system
+$RNG - random, 0.0 to 1.0
+
+make Entities always get added to list, even if checks fail, just dont parse
+{PROCESS: name} tag to define a new function processor the parser calls on the body
+if
+! process: name
+is found, run the func on the body and dont parse
+
 
 Make a parsing engine for Python, go, Ruby, js
 
-implement comments in code
-
+Maybe have the remaining kargs passed to the constructor become env vars in the parser
 """
 	
 class VersionError(Exception):
@@ -53,18 +57,7 @@ class Mog:
 	@staticmethod
 	async def loadasync(**kargs):
 		kargs['enableAsync'] = True
-		if kargs.get('str'):
-			i = kargs['str']
-			del kargs['str']
-			return Loader.fromString(i, **kargs)
-		elif kargs.get('file'):
-			i = kargs['file']
-			del kargs['file']
-			return Loader.fromFile(i, **kargs)
-		elif kargs.get('dir'):
-			i = kargs['dir']
-			del kargs['dir']
-			return Scanner.read(i, **kargs)		
+		return Mog.load(**kargs)	
 			
 class Loader:
 	@staticmethod
@@ -298,7 +291,7 @@ class Parser:
 	def export(self, **kargs):
 		body = ""
 		if kargs.get('update_meta'):
-			body = "{META}\n"
+			body = "! META\n"
 			for item in self.vars:
 				body += f"{item}: {str(self.vars[item])}\n"
 		else:
@@ -306,9 +299,9 @@ class Parser:
 			
 		for item in self.entities:
 			if item.body.startswith("\n"):
-				body += f"---{item.body}"
+				body += f"---{item._body}"
 			else:
-				body += f"---\n{item.body}"
+				body += f"---\n{item._body}"
 		if kargs.get('file'):	
 			with open(kargs['file'], 'w+') as f:
 				f.write(body)
@@ -322,19 +315,42 @@ class Parser:
 			self.entities.append(ent)
 		else:
 			self.entities.insert(ind, ent)
-			
+	
+	def extractComments(self, entity):
+		body = entity.body.split("\n")
+		comments = []
+		for line in entity.body.split("\n"):
+			if line.startswith("//"):
+				comments.append(line[2:])
+				body.remove(line)
+			elif "//" in line:
+				comments.append(line.split("//")[1])
+				body[body.index(line)] = line.replace("//"+line.split("//")[1], '')
+		entity.body = '\n'.join(body)
+		entity.comments = comments
+
+	def parseDefPrps(self, prop):
+		if prop == "$RNG":
+			return str(random.random())
+		elif prop == "$USER":
+			return os.environ.get('USER')
+		elif prop == "$HOME":
+			return os.environ.get('HOME')
+		else:
+			return prop
+							
 	def parse(self, partial=False):
 		self.entities = []
 		out = ""
 		
 		for entry in self.body.split("---"):
 			transient = False
-			if entry.split("\n")[0] == "{META}":
+			if entry.split("\n")[0] == "! META":
 				self.meta_header = entry
-				l = entry.replace("{META}", "").split("\n")
+				l = entry.replace("! META", "").split("\n")
 				for item in l:
 					if item != "\n" and item != "":
-						self.vars[item.split(": ")[0]] = item.split(": ")[1]
+						self.vars[item.split(": ")[0]] = self.parseDefPrps(item.split(": ")[1])
 				
 				if self.vars.get('version'):
 					v = int(self.vars['version'])
@@ -358,29 +374,69 @@ class Parser:
 					if not partial:
 						if len(calls) > 0 and calls[0].startswith("IF"):
 							ent.body = entry.replace("{"+calls[0]+"}", '')
-							v = calls[0].split(": ")[1]
-							key = v.split("=")[0]
-							value = v.split("=")[1]
-							if self.vars.get(key) == value:
-								ent.parse()
-						elif len(calls) > 0 and calls[0].startswith("NOT"):
-							ent.body = entry.replace("{"+calls[0]+"}", '')
-							v = calls[0].split(": ")[1]
-							key = v.split("=")[0]
-							value = v.split("=")[1]
-							if self.vars.get(key) == value:
+							val = calls[0].split(": ")[1]
+							checks = val.split(";")
+							passed = 0
+							
+							if checks[0].startswith("need"):
+								x = checks[0].split()
+								tocheck = x[1]
+								need = int(x[2])
+								checks.pop(0)
+							else:
+								tocheck = "="
+								need = len(checks)
+								
+							for v in checks:
+
+								key = v.split("=")[0].strip()
+								value = v.split("=")[1].strip()
+								if "!=" in v:
+									key = v.split("!=")[0].strip()
+									value = v.split("!=")[1].strip()
+									if self.vars.get(key) != value:
+										passed += 1
+								elif ">=" in v:
+									key = v.split(">=")[0].strip()
+									value = v.split(">=")[1].strip()
+									if self.vars.get(key) >= value:
+										passed += 1
+								elif ">" in v:
+									key = v.split(">")[0].strip()
+									value = v.split(">")[1].strip()
+									if self.vars.get(key) > value:
+										passed += 1
+								elif "<=" in v:
+									key = v.split("<=")[0].strip()
+									value = v.split("<=")[1].strip()
+									if self.vars.get(key) <= value:
+										passed += 1
+								elif "<" in v:
+									key = v.split("<")[0].strip()
+									value = v.split("<")[1].strip()
+									if self.vars.get(key) < value:
+										passed += 1
+
+								elif "==" in v:
+									key = v.split("==")[0].strip()
+									value = v.split("==")[1].strip()
+									if self.vars.get(key) == value:
+										passed += 1
+								
+							if eval(f"{passed} {tocheck} {need}"):
 								ent.parse()
 								
 						else:
 							ent.body = self.extractFn(ent.body)
 							ent.body = self.extractCls(ent.body)
 							ent.transient = self.isTransient(ent.body)
+							self.extractComments(ent)
 							if not ent.transient:
 								ent.parse()
 					if ent.valid():
 						out += ent.parsed
 						
-						self.entities.append(ent)
+					self.entities.append(ent)
 
 		return out
 
@@ -476,6 +532,7 @@ class Parser:
 				
 class Entity:
 	def __init__(self, parser, text):
+		self._body = text
 		self.body = text
 		self.events = []
 		self.parser = parser
@@ -483,6 +540,7 @@ class Entity:
 		self.parsed = ""
 		self.vars = {}
 		self.transient = False
+		self.comments = []
 		
 	def write(self, code):
 		self.body = code
@@ -737,7 +795,7 @@ class AsyncParser:
 	def export(self, **kargs):
 		body = ""
 		if kargs.get('update_meta'):
-			body = "{META}\n"
+			body = "! META\n"
 			for item in self.vars:
 				body += f"{item}: {str(self.vars[item])}\n"
 		else:
@@ -745,9 +803,9 @@ class AsyncParser:
 			
 		for item in self.entities:
 			if item.body.startswith("\n"):
-				body += f"---{item.body}"
+				body += f"---{item._body}"
 			else:
-				body += f"---\n{item.body}"
+				body += f"---\n{item._body}"
 		if kargs.get('file'):	
 			with open(kargs['file'], 'w+') as f:
 				f.write(body)
@@ -761,18 +819,41 @@ class AsyncParser:
 			self.entities.append(ent)
 		else:
 			self.entities.insert(ind, ent)
-			
+
+	def extractComments(self, entity):
+		body = entity.body.split("\n")
+		comments = []
+		for line in entity.body.split("\n"):
+			if line.startswith("//"):
+				comments.append(line[2:])
+				body.remove(line)
+			elif "//" in line:
+				comments.append(line.split("//")[1])
+				body[body.index(line)] = line.replace("//"+line.split("//")[1], '')
+		entity.body = '\n'.join(body)
+		entity.comments = comments
+		
+	def parseDefPrps(self, prop):
+		if prop == "$RNG":
+			return str(random.random())
+		elif prop == "$USER":
+			return os.environ.get('USER')
+		elif prop == "$HOME":
+			return os.environ.get('HOME')
+		else:
+			return prop
+					
 	async def parse(self, partial=False):
 		out = ""
 		self.entities = []
 		for entry in self.body.split("---"):
 			
-			if entry.split("\n")[0] == "{META}":
+			if entry.split("\n")[0] == "! META":
 				self.meta_header = entry
-				l = entry.replace("{META}", "").split("\n")
+				l = entry.replace("! META", "").split("\n")
 				for item in l:
 					if item != "\n" and item != "":
-						self.vars[item.split(": ")[0]] = item.split(": ")[1]
+						self.vars[item.split(": ")[0]] = self.parseDefPrps(item.split(": ")[1])
 				
 				if self.vars.get('version'):
 					v = int(self.vars['version'])
@@ -796,28 +877,72 @@ class AsyncParser:
 					if not partial:
 						if len(calls) > 0 and calls[0].startswith("IF"):
 							ent.body = entry.replace("{"+calls[0]+"}", '')
-							v = calls[0].split(": ")[1]
-							key = v.split("=")[0]
-							value = v.split("=")[1]
-							if self.vars.get(key) == value:
+							val = calls[0].split(": ")[1]
+							checks = val.split(";")
+							passed = 0
+							
+							if checks[0].startswith("need"):
+								x = checks[0].split()
+								tocheck = x[1]
+								need = int(x[2])
+								checks.pop(0)
+							else:
+								tocheck = "="
+								need = len(checks)
+								
+							print(checks)	
+							for v in checks:
+								print(f"Checking {v}")
+								key = v.split("=")[0].strip()
+								value = v.split("=")[1].strip()
+								if "!=" in v:
+									key = v.split("!=")[0].strip()
+									value = v.split("!=")[1].strip()
+									if self.vars.get(key) != value:
+										passed += 1
+								elif ">=" in v:
+									key = v.split(">=")[0].strip()
+									value = v.split(">=")[1].strip()
+									if self.vars.get(key) >= value:
+										passed += 1
+								elif ">" in v:
+									key = v.split(">")[0].strip()
+									value = v.split(">")[1].strip()
+									if self.vars.get(key) > value:
+										passed += 1
+								elif "<=" in v:
+									key = v.split("<=")[0].strip()
+									value = v.split("<=")[1].strip()
+									if self.vars.get(key) <= value:
+										passed += 1
+								elif "<" in v:
+									key = v.split("<")[0].strip()
+									value = v.split("<")[1].strip()
+									if self.vars.get(key) < value:
+										passed += 1
+
+								elif "==" in v:
+									key = v.split("==")[0].strip()
+									value = v.split("==")[1].strip()
+									if self.vars.get(key) == value:
+										passed += 1
+								print(f"Check: {passed}/{need} {tocheck}")
+								
+							if eval(f"{passed} {tocheck} {need}"):
 								await ent.parse()
-						elif len(calls) > 0 and calls[0].startswith("NOT"):
-							ent.body = entry.replace("{"+calls[0]+"}", '')
-							v = calls[0].split(": ")[1]
-							key = v.split("=")[0]
-							value = v.split("=")[1]
-							if self.vars.get(key) == value:
-								await ent.parse()
+
 						else:
 							ent.body = self.extractFn(ent.body)
 							ent.body = self.extractCls(ent.body)
 							ent.transient = self.isTransient(ent.body)
+							self.extractComments(ent)
 							if not ent.transient:
 								await ent.parse()
 							
 					if ent.valid():
 						out += ent.parsed
-						self.entities.append(ent)
+					
+					self.entities.append(ent)
 		return out
 
 	def extractFn(self, entity):
@@ -912,6 +1037,7 @@ class AsyncParser:
 				
 class AsyncEntity:
 	def __init__(self, parser, text):
+		self._body = text
 		self.body = text
 		self.events = []
 		self.parser = parser
@@ -919,7 +1045,8 @@ class AsyncEntity:
 		self.parsed = ""
 		self.vars = {}
 		self.transient = False
-			
+		self.comments = []
+		
 	def write(self, code):
 		self.body = code
 		self.parsed = ""
