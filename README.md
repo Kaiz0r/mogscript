@@ -139,6 +139,14 @@ Adding a ! transient line will stop the parser from using this block, BUT any de
 *fn bork
 	print( "no")
 *endfn
+---
+Some extra functions;
+These will generally require external libraries, but the whole system itself doesn't. If the libraries
+aren't found, these specific tags just won't do anything.
+{expr: 2+2} returns 4, evaluates any math expression, requires pyparsing library
+{art: coffee} returns a coffee cup ascii art, uses the `art` library
+{textart: hello world} turns the text in to an ascii text, a second arg can be given for a font name.
+Also part of the `art` library.
 ```
 
 ```py
