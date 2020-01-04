@@ -1,5 +1,18 @@
-import re, random, os, textwrap, asyncio, time
-
+import re, random, os, textwrap, asyncio, time, platform, sys
+try:
+	from pyparsing import (Literal, CaselessLiteral, Word, Combine, Group, Optional,
+						   ZeroOrMore, Forward, nums, alphas, oneOf)
+	import math
+	import operator
+	EXPR_PARSING = True
+except:
+	EXPR_PARSING = False
+	
+try:
+	import art
+	ART_LIB = True
+except:
+	ART_LIB = False
 # TODO
 """
 {include: filename} 
@@ -8,30 +21,11 @@ Replaces with the read text of a file
 {sh: command}
 Run bash commands, replaces with output
 
-{http: url; p}
-{json: url; key}
-replaces with text gotten from the URL, requests.get or asyncio.get
-second arg is the block of html to return, or json key
-or if its an @arg, run function on url
-
-{expr: expression}
-runs math expression (using the calc function used in athenas utils?)
-
-
-for auto-meta values
-$OS - operating system
-$PYVER - python version
-
-
 {PROCESS: name} tag to define a new function processor the parser calls on the body
 if
 ! process: name
 is found, run the func on the body and dont parse, cause if the thing itself wants to parse, it can do it there
 
-strip out the replacement system cause it doesnt fit
-split it off in to its own function tag
-{repl: current; prompt}
-adds a new item to a list
 
 Make a parsing engine for Python, go, Ruby, js
 
@@ -130,7 +124,9 @@ class Parser:
 		self.addGlobal('if', self.getif)
 		self.addGlobal('not', self.getnot)		
 		self.addGlobal('print', self.spr)
-		
+		self.addGlobal('expr', self.expr)	
+		self.addGlobal('art', self.art)	
+		self.addGlobal('textart', self.textart)	
 		#Extra stuff
 		self.addGlobal('repl', self.insertReplacement)	
 		
@@ -198,7 +194,36 @@ class Parser:
 		
 	def choose(self, parser, *args):
 		return random.choice(list(args))
-	
+
+	def art(self, parser, *args):
+		if not ART_LIB:
+			return "`art` module needed for art."
+			
+		try:
+			if len(args) == 1:
+				return art.art(args[0])
+			elif len(args) == 2:
+				return art.art(args[0], text=args[1])
+		except Exception as e:
+			return str(e)
+			
+	def textart(self, parser, *args):
+		if not ART_LIB:
+			return "`art` module needed for art."
+			
+		try:
+			if len(args) == 1:
+				return art.text2art(args[0])
+			elif len(args) == 2:
+				return art.text2art(args[0], args[1])
+		except Exception as e:
+			return str(e)	
+				
+	def expr(self, parser, *args):
+		if not EXPR_PARSING:
+			return "`pyparsing` module needed for expr."
+		return str(NumericStringParser().eval(args[0]))
+			
 	def recheck(self, parser, *args):
 		self.parse(partial=True)
 	
@@ -357,6 +382,15 @@ class Parser:
 			return os.environ.get('USER')
 		elif prop == "$HOME":
 			return os.environ.get('HOME')
+		elif prop == "$OS":
+			return platform.system()
+		elif prop == "$RELEASE":
+			return platform.release()
+		elif prop == "$VER":
+			f = ""
+			for item in list(sys.version_info):
+				f = f"{f}.{item}"
+			return f[1:-1]
 		else:
 			return prop
 							
@@ -405,42 +439,39 @@ class Parser:
 								need = int(x[2])
 								checks.pop(0)
 							else:
-								tocheck = "="
+								tocheck = "=="
 								need = len(checks)
 								
 							for v in checks:
-
-								key = v.split("=")[0].strip()
-								value = v.split("=")[1].strip()
 								if "!=" in v:
 									key = v.split("!=")[0].strip()
-									value = v.split("!=")[1].strip()
+									value = self.parseMSymbol(ent, v.split("!=")[1].strip())
 									if self.vars.get(key) != value:
 										passed += 1
 								elif ">=" in v:
 									key = v.split(">=")[0].strip()
-									value = v.split(">=")[1].strip()
+									value = self.parseMSymbol(ent, v.split(">=")[1].strip())
 									if self.vars.get(key) >= value:
 										passed += 1
 								elif ">" in v:
 									key = v.split(">")[0].strip()
-									value = v.split(">")[1].strip()
+									value = self.parseMSymbol(ent, v.split(">")[1].strip())
 									if self.vars.get(key) > value:
 										passed += 1
 								elif "<=" in v:
 									key = v.split("<=")[0].strip()
-									value = v.split("<=")[1].strip()
+									value = self.parseMSymbol(ent, v.split("<=")[1].strip())
 									if self.vars.get(key) <= value:
 										passed += 1
 								elif "<" in v:
 									key = v.split("<")[0].strip()
-									value = v.split("<")[1].strip()
+									value = self.parseMSymbol(ent, v.split("<")[1].strip())
 									if self.vars.get(key) < value:
 										passed += 1
 
 								elif "==" in v:
 									key = v.split("==")[0].strip()
-									value = v.split("==")[1].strip()
+									value = self.parseMSymbol(ent, v.split("==")[1].strip())
 									if self.vars.get(key) == value:
 										passed += 1
 								
@@ -613,7 +644,9 @@ class AsyncParser:
 		self.addGlobal('if', self.getif)
 		self.addGlobal('not', self.getnot)		
 		self.addGlobal('print', self.spr)
-			
+		self.addGlobal('expr', self.expr)
+		self.addGlobal('art', self.art)
+		self.addGlobal('textart', self.textart)
 		#Extras
 		self.addGlobal('repl', self.insertReplacement)
 		
@@ -690,7 +723,37 @@ class AsyncParser:
 		value = args[0].split("=")[1]
 		if self.vars.get(key) != value:
 			return args[1]	
-				
+	
+	async def art(self, parser, *args):
+		if not ART_LIB:
+			return "`art` module needed for art."
+			
+		try:
+			if len(args) == 1:
+				return art.art(args[0])
+			elif len(args) == 2:
+				return art.art(args[0], text=args[1])
+		except Exception as e:
+			return str(e)
+			
+	async def textart(self, parser, *args):
+		if not ART_LIB:
+			return "`art` module needed for art."
+			
+		try:
+			if len(args) == 1:
+				return art.text2art(args[0])
+			elif len(args) == 2:
+				return art.text2art(args[0], args[1])
+		except Exception as e:
+			return str(e)		
+			
+	async def expr(self, parser, *args):
+		if not EXPR_PARSING:
+			return "`pyparsing` module needed for expr."
+			
+		return str(NumericStringParser().eval(args[0]))
+					
 	async def choose(self, parser, *args):
 		return random.choice(list(args))
 	
@@ -840,6 +903,15 @@ class AsyncParser:
 			return os.environ.get('USER')
 		elif prop == "$HOME":
 			return os.environ.get('HOME')
+		elif prop == "$OS":
+			return platform.system()
+		elif prop == "$RELEASE":
+			return platform.release()
+		elif prop == "$VER":
+			f = ""
+			for item in list(sys.version_info):
+				f = f"{f}.{item}"
+			return f[1:-1]
 		else:
 			return prop
 					
@@ -887,46 +959,41 @@ class AsyncParser:
 								need = int(x[2])
 								checks.pop(0)
 							else:
-								tocheck = "="
+								tocheck = "=="
 								need = len(checks)
 								
-							print(checks)	
 							for v in checks:
-								print(f"Checking {v}")
-								key = v.split("=")[0].strip()
-								value = v.split("=")[1].strip()
 								if "!=" in v:
 									key = v.split("!=")[0].strip()
-									value = v.split("!=")[1].strip()
+									value = await self.parseMSymbol(ent, v.split("!=")[1].strip())
 									if self.vars.get(key) != value:
 										passed += 1
 								elif ">=" in v:
 									key = v.split(">=")[0].strip()
-									value = v.split(">=")[1].strip()
+									value = await self.parseMSymbol(ent, v.split(">=")[1].strip())
 									if self.vars.get(key) >= value:
 										passed += 1
 								elif ">" in v:
 									key = v.split(">")[0].strip()
-									value = v.split(">")[1].strip()
+									value = await self.parseMSymbol(ent, v.split(">")[1].strip())
 									if self.vars.get(key) > value:
 										passed += 1
 								elif "<=" in v:
 									key = v.split("<=")[0].strip()
-									value = v.split("<=")[1].strip()
+									value = await self.parseMSymbol(ent, v.split("<=")[1].strip())
 									if self.vars.get(key) <= value:
 										passed += 1
 								elif "<" in v:
 									key = v.split("<")[0].strip()
-									value = v.split("<")[1].strip()
+									value = await self.parseMSymbol(ent, v.split("<")[1].strip())
 									if self.vars.get(key) < value:
 										passed += 1
 
 								elif "==" in v:
 									key = v.split("==")[0].strip()
-									value = v.split("==")[1].strip()
+									value = await self.parseMSymbol(ent, v.split("==")[1].strip())
 									if self.vars.get(key) == value:
 										passed += 1
-								print(f"Check: {passed}/{need} {tocheck}")
 								
 							if eval(f"{passed} {tocheck} {need}"):
 								await ent.parse()
@@ -1078,3 +1145,98 @@ class AsyncEntity:
 				self.parsed += f"{item}\n"	
 				
 		
+class NumericStringParser(object):
+    def pushFirst(self, strg, loc, toks):
+        self.exprStack.append(toks[0])
+
+    def pushUMinus(self, strg, loc, toks):
+        if toks and toks[0] == '-':
+            self.exprStack.append('unary -')
+
+    def __init__(self):
+        """
+        expop   :: '^'
+        multop  :: '*' | '/'
+        addop   :: '+' | '-'
+        integer :: ['+' | '-'] '0'..'9'+
+        atom    :: PI | E | real | fn '(' expr ')' | '(' expr ')'
+        factor  :: atom [ expop factor ]*
+        term    :: factor [ multop factor ]*
+        expr    :: term [ addop term ]*
+        """
+        point = Literal(".")
+        e = CaselessLiteral("E")
+        fnumber = Combine(Word("+-" + nums, nums) +
+                          Optional(point + Optional(Word(nums))) +
+                          Optional(e + Word("+-" + nums, nums)))
+        ident = Word(alphas, alphas + nums + "_$")
+        plus = Literal("+")
+        minus = Literal("-")
+        mult = Literal("*")
+        div = Literal("/")
+        lpar = Literal("(").suppress()
+        rpar = Literal(")").suppress()
+        addop = plus | minus
+        multop = mult | div
+        expop = Literal("^")
+        pi = CaselessLiteral("PI")
+        expr = Forward()
+        atom = ((Optional(oneOf("- +")) +
+                 (ident + lpar + expr + rpar | pi | e | fnumber).setParseAction(self.pushFirst))
+                | Optional(oneOf("- +")) + Group(lpar + expr + rpar)
+                ).setParseAction(self.pushUMinus)
+        # by defining exponentiation as "atom [ ^ factor ]..." instead of
+        # "atom [ ^ atom ]...", we get right-to-left exponents, instead of left-to-right
+        # that is, 2^3^2 = 2^(3^2), not (2^3)^2.
+        factor = Forward()
+        factor << atom + \
+            ZeroOrMore((expop + factor).setParseAction(self.pushFirst))
+        term = factor + \
+            ZeroOrMore((multop + factor).setParseAction(self.pushFirst))
+        expr << term + \
+            ZeroOrMore((addop + term).setParseAction(self.pushFirst))
+        # addop_term = ( addop + term ).setParseAction( self.pushFirst )
+        # general_term = term + ZeroOrMore( addop_term ) | OneOrMore( addop_term)
+        # expr <<  general_term
+        self.bnf = expr
+        # map operator symbols to corresponding arithmetic operations
+        epsilon = 1e-12
+        self.opn = {"+": operator.add,
+                    "-": operator.sub,
+                    "*": operator.mul,
+                    "/": operator.truediv,
+                    "^": operator.pow}
+        self.fn = {"sin": math.sin,
+                   "cos": math.cos,
+                   "tan": math.tan,
+                   "exp": math.exp,
+                   "abs": abs,
+                   "trunc": lambda a: int(a),
+                   "round": round,
+                   "sgn": lambda a: abs(a) > epsilon and cmp(a, 0) or 0}
+
+    def evaluateStack(self, s):
+        op = s.pop()
+        if op == 'unary -':
+            return -self.evaluateStack(s)
+        if op in "+-*/^":
+            op2 = self.evaluateStack(s)
+            op1 = self.evaluateStack(s)
+            return self.opn[op](op1, op2)
+        elif op == "PI":
+            return math.pi  # 3.1415926535
+        elif op == "E":
+            return math.e  # 2.718281828
+        elif op in self.fn:
+            return self.fn[op](self.evaluateStack(s))
+        elif op[0].isalpha():
+            return 0
+        else:
+            return float(op)
+
+    def eval(self, num_string, parseAll=True):
+        self.exprStack = []
+        results = self.bnf.parseString(num_string, parseAll)
+        val = self.evaluateStack(self.exprStack[:])
+        return val
+        
