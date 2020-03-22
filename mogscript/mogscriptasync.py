@@ -53,30 +53,27 @@ some kind of [ ] natural language commands?
 to decide more things later
 """
 
-
 class VersionError(Exception):
     pass
 
-
-class Mog:
+class AsyncMog:
     @staticmethod
     def load(**kargs):
         if kargs.get("str"):
             i = kargs["str"]
             del kargs["str"]
-            return Parser(code, **kargs)
+            return AsyncParser(code, **kargs)
         elif kargs.get("file"):
             i = kargs["file"]
             del kargs["file"]
             with open(i, 'r+') as f:
-                return Parser(f.read(), **kargs)
-            
+                return AsyncParser(f.read(), **kargs)
         elif kargs.get("dir"):
             i = kargs["dir"]
             del kargs["dir"]
-            return Scanner.read(i, **kargs)
+            return AsyncScanner.read(i, **kargs)
 
-class Scanner:
+class AsyncScanner:
     @staticmethod
     def read(path, **kargs):
         if not kargs.get("exts"):
@@ -93,14 +90,11 @@ class Scanner:
                     do = True
             if do:
                 with open(f"{path}{file}", "r") as f:
-                    p.append(Parser(f.read(), **kargs))
+                    p.append(AsyncParser(f.read(), **kargs))
         return p
 
-class MogLibrary:
-    @staticmethod
-    def spr(*args):
-        return " ".join(args)
-    
+
+class AsyncMogLibrary:
     @staticmethod
     def parseMSymbol(p, entity, word):
         if word.startswith("$"):  # from vars
@@ -135,7 +129,7 @@ class MogLibrary:
             phr = item.split(" ")
 
             for word in phr:
-                item = item.replace(word, MogLibrary.parseMSymbol(p, entity, word))
+                item = item.replace(word, AsyncMogLibrary.parseMSymbol(p, entity, word))
 
             out.append(item)
         return out
@@ -145,18 +139,14 @@ class MogLibrary:
         p.body += f"\n{code}"
 
     @staticmethod    
-    def read(p, filepath):
+    async def read(p, filepath):
         with open(filepath, "r") as f:
             p.body += f.read()
             
     @staticmethod
     def addGlobal(p, name, call):
         p.globals[name.lower()] = call
-        
-    @staticmethod      
-    def recheck(p, *args):
-        p.parse(partial=True)
-        
+           
     @staticmethod    
     def insert(p, body, ind=-1):
         ent = Entity(p, body)
@@ -181,7 +171,7 @@ class MogLibrary:
         entity.comments = comments
         
     @staticmethod    
-    def export(p, **kargs):
+    async def export(p, **kargs):
         body = ""
         if kargs.get("update_meta"):
             body = "! META\n"
@@ -202,7 +192,6 @@ class MogLibrary:
 
         return body
     
-
     @staticmethod
     def parseDefPrps(prop):
         if prop == "$RNG":
@@ -224,7 +213,7 @@ class MogLibrary:
             return prop
         
     @staticmethod    
-    def walk(p):
+    async def walk(p):
         out = ""
         for ent in p.entities:
             if not ent.valid():
@@ -235,16 +224,16 @@ class MogLibrary:
                     key = v.split("=")[0]
                     value = v.split("=")[1]
                     if p.vars.get(key) == value:
-                        ent.parse()
+                        await ent.parse()
                 elif len(calls) > 0 and calls[0].startswith("NOT"):
                     ent.body = ent.body.replace("{" + calls[0] + "}", "")
                     v = calls[0].split(": ")[1]
                     key = v.split("=")[0]
                     value = v.split("=")[1]
                     if p.vars.get(key) == value:
-                        ent.parse()
+                        await ent.parse()
                 else:
-                    ent.parse()
+                    await ent.parse()
                     
                 if ent.valid():
                     out += ent.parsed
@@ -252,7 +241,7 @@ class MogLibrary:
 
 
     @staticmethod
-    def parse(p, *args, **kargs):
+    async def parse(p, *args, **kargs):
         partial = kargs.get('partial', False)
         p.entities = []
         out = ""
@@ -264,7 +253,7 @@ class MogLibrary:
                 l = entry.replace("! META", "").split("\n")
                 for item in l:
                     if item != "\n" and item != "":
-                        p.vars[item.split(": ")[0]] = MogLibrary.parseDefPrps(
+                        p.vars[item.split(": ")[0]] = AsyncMogLibrary.parseDefPrps(
                             item.split(": ")[1]
                         )
 
@@ -281,14 +270,14 @@ class MogLibrary:
                     entry = entry.replace("{" + calls[0] + "}", "")
                     name = calls[0].split(": ")[1]
 
-                    body = f'def func(p, args):\n{textwrap.indent(entry, "  ")}'
+                    body = f'async def func(p, args):\n{textwrap.indent(entry, "  ")}'
 
                     env = {"p": p}
                     exec(body, env)
-                    MogLibrary.addGlobal(p, name, env["func"])
+                    AsyncMogLibrary.addGlobal(p, name, env["func"])
 
                 else:
-                    ent = Entity(p, entry)
+                    ent = AsyncEntity(p, entry)
                         
                     if not partial:
                         if len(calls) > 0 and calls[0].startswith("IF"):
@@ -309,35 +298,35 @@ class MogLibrary:
                             for v in checks:
                                 if "!=" in v:
                                     key = v.split("!=")[0].strip()
-                                    value = MogLibrary.parseMSymbol(p,
+                                    value = AsyncMogLibrary.parseMSymbol(p,
                                         ent, v.split("!=")[1].strip()
                                     )
                                     if p.vars.get(key) != value:
                                         passed += 1
                                 elif ">=" in v:
                                     key = v.split(">=")[0].strip()
-                                    value = p.parseMSymbol(p,
+                                    value = AsyncMogLibrary.parseMSymbol(p,
                                         ent, v.split(">=")[1].strip()
                                     )
                                     if p.vars.get(key) >= value:
                                         passed += 1
                                 elif ">" in v:
                                     key = v.split(">")[0].strip()
-                                    value = MogLibrary.parseMSymbol(p,
+                                    value = AsyncMogLibrary.parseMSymbol(p,
                                         ent, v.split(">")[1].strip()
                                     )
                                     if p.vars.get(key) > value:
                                         passed += 1
                                 elif "<=" in v:
                                     key = v.split("<=")[0].strip()
-                                    value = MogLibrary.parseMSymbol(p,
+                                    value = AsyncMogLibrary.parseMSymbol(p,
                                         ent, v.split("<=")[1].strip()
                                     )
                                     if p.vars.get(key) <= value:
                                         passed += 1
                                 elif "<" in v:
                                     key = v.split("<")[0].strip()
-                                    value = MogLibrary.parseMSymbol(p,
+                                    value = AsyncMogLibrary.parseMSymbol(p,
                                         ent, v.split("<")[1].strip()
                                     )
                                     if p.vars.get(key) < value:
@@ -345,23 +334,23 @@ class MogLibrary:
 
                                 elif "==" in v:
                                     key = v.split("==")[0].strip()
-                                    value = MogLibrary.parseMSymbol(p,
+                                    value = AsyncMogLibrary.parseMSymbol(p,
                                         ent, v.split("==")[1].strip()
                                     )
                                     if p.vars.get(key) == value:
                                         passed += 1
 
                             if eval(f"{passed} {tocheck} {need}"):
-                                ent.parse()
+                                await ent.parse()
 
                         else:
-                            ent.body = MogLibrary.extractFn(p, ent.body)
-                            ent.body = MogLibrary.extractCls(p, ent.body)
-                            ent.transient = MogLibrary.isTransient(ent.body)
+                            ent.body = AsyncMogLibrary.extractFn(p, ent.body)
+                            ent.body = AsyncMogLibrary.extractCls(p, ent.body)
+                            ent.transient = AsyncMogLibrary.isTransient(ent.body)
                             
-                            MogLibrary.extractComments(ent)
+                            AsyncMogLibrary.extractComments(ent)
                             if not ent.transient:
-                                ent.parse()
+                                await ent.parse()
                                 
                     if ent.valid():
                         out += ent.parsed
@@ -386,7 +375,7 @@ class MogLibrary:
             if item.startswith("*fn"):
                 do = True
                 name = item.split()[1]
-                builder += item.replace("*fn", "def") + "(p, *args):\n"
+                builder += item.replace("*fn", "async def") + "(p, *args):\n"
 
         env = {"p": p}
 
@@ -445,37 +434,59 @@ class MogLibrary:
         return False
 
 
-class Parser:
+class AsyncParser:
     def __init__(self, script, **kargs):
-        self.__version = 2
+        self.__version = 1
+
         self.body = script
         self.entities = []
         self.globals = {}
         self.vars = {}
         self.meta_header = ""
-        self.lib = MogLibrary #Alias for calling the library externally
+        self.lib = AsyncMogLibrary #Alias for calling the library externally
         
         # Core globals
-        MogLibrary.addGlobal(self, "add", self.add)
-        MogLibrary.addGlobal(self, "sub", self.sub)
-        MogLibrary.addGlobal(self, "div", self.div)
-        MogLibrary.addGlobal(self, "mult", self.mult)
-        MogLibrary.addGlobal(self, "var", self.var)
-        MogLibrary.addGlobal(self, "local", self.local)
-        MogLibrary.addGlobal(self, "choose", self.choose)
-        MogLibrary.addGlobal(self, "eval", self.eval)
-        MogLibrary.addGlobal(self, "sleep", self.sleep)
-        MogLibrary.addGlobal(self, "recheck", self.recheck)
-        MogLibrary.addGlobal(self, "if", self.getif)
-        MogLibrary.addGlobal(self, "not", self.getnot)
-        MogLibrary.addGlobal(self, "print", self.spr)
-        MogLibrary.addGlobal(self, "expr", self.expr)
-        MogLibrary.addGlobal(self, "art", self.art)
-        MogLibrary.addGlobal(self, "textart", self.textart)
+        AsyncMogLibrary.addGlobal(self, "add", self.add)
+        AsyncMogLibrary.addGlobal(self, "sub", self.sub)
+        AsyncMogLibrary.addGlobal(self, "div", self.div)
+        AsyncMogLibrary.addGlobal(self, "mult", self.mult)
+        AsyncMogLibrary.addGlobal(self, "var", self.var)
+        AsyncMogLibrary.addGlobal(self, "local", self.local)
+        AsyncMogLibrary.addGlobal(self, "choose", self.choose)
+        AsyncMogLibrary.addGlobal(self, "eval", self.eval)
+        AsyncMogLibrary.addGlobal(self, "sleep", self.sleep)
+        AsyncMogLibrary.addGlobal(self, "recheck", self.recheck)
+        AsyncMogLibrary.addGlobal(self, "if", self.getif)
+        AsyncMogLibrary.addGlobal(self, "not", self.getnot)
+        AsyncMogLibrary.addGlobal(self, "print", self.spr)
+        AsyncMogLibrary.addGlobal(self, "expr", self.expr)
+        AsyncMogLibrary.addGlobal(self, "art", self.art)
+        AsyncMogLibrary.addGlobal(self, "textart", self.textart)
         # Extra stuff
-        MogLibrary.addGlobal(self, "repl", self.insertReplacement)
-  
-    def giveRepl(self, name, new):
+        AsyncMogLibrary.addGlobal(self, "repl", self.insertReplacement)
+        
+    async def export(self, *args, **kargs):
+        return await AsyncMogLibrary.export(self, *args, **kargs)
+    
+    def insert(self, body, ind=-1):
+        return AsyncMogLibrary.insert(self, body, ind=-1)
+
+    async def read(self, path):
+        return await AsyncMogLibrary.read(self, path)
+
+    def write(self, code):
+        return AsyncMogLibrary.write(self, code)
+    
+    async def recheck(self, *args):
+        return AsyncMogLibrary.recheck(self)
+    
+    async def parse(self, *args, **kargs):
+        return await AsyncMogLibrary.parse(self, *args, **kargs)
+    
+    async def spr(self, *args):
+        return " ".join(args)
+     
+    async def giveRepl(self, name, new):
         if not self.vars.get('repls'):
             self.vars['repls'] = {}
         if not self.vars['repls'].get(name):
@@ -483,41 +494,10 @@ class Parser:
 
         self.vars['repls'][name]["new"] = new
 
-        
-    def spr(self, entity, *args):
-        return MogLibrary.spr(args)
-    
-    def recheck(self, entity, *args):
-        return MogLibrary.recheck(self)
-    
-    def parse(self, *args, **kargs):
-        return MogLibrary.parse(self, *args, **kargs)
+    async def recheck(self, *args):
+        await p.parse(partial=True)
 
-    def export(self, *args, **kargs):
-        return MogLibrary.export(self, *args, **kargs)
-    
-    def insert(self, body, ind=-1):
-        return MogLibrary.insert(self, body, ind=-1)
-
-    def read(self, path):
-        return MogLibrary.read(self, path)
-
-    def write(self, code):
-        return MogLibrary.write(self, code)
-                
-    def insertReplacement(self, entity, *args):
-        if len(args) == 2:
-            if self.vars.get("repls", {}).get(args[0], {}).get("new"):
-                return self.vars.get("repls", {}).get(args[0]).get("new")
-            repls = self.vars.get("repls", {})
-            repls[args[0]] = {"alias": args[1], "new": ""}
-            self.vars["repls"] = repls
-        return f"%{args[0]}% ({args[1].strip()})"
-
-    def choose(self, entity, *args):
-        return random.choice(list(args))
-
-    def art(self, entity, *args):
+    async def art(self, parser, *args):
         if not ART_LIB:
             return "`art` module needed for art."
 
@@ -529,7 +509,7 @@ class Parser:
         except Exception as e:
             return str(e)
 
-    def textart(self, entity, *args):
+    async def textart(self, parser, *args):
         if not ART_LIB:
             return "`art` module needed for art."
 
@@ -541,24 +521,19 @@ class Parser:
         except Exception as e:
             return str(e)
 
-    def expr(self, entity, *args):
+    async def expr(self, parser, *args):
         if not EXPR_PARSING:
             return "`pyparsing` module needed for expr."
+
         return str(NumericStringParser().eval(args[0]))
 
-    def getif(self, entity, *args):
-        key = args[0].split("=")[0]
-        value = args[0].split("=")[1]
-        if self.vars.get(key) == value:
-            return args[1]
+    async def choose(self, parser, *args):
+        return random.choice(list(args))
 
-    def getnot(self, entity, *args):
-        key = args[0].split("=")[0]
-        value = args[0].split("=")[1]
-        if self.vars.get(key) != value:
-            return args[1]
+    async def sleep(self, parser, *args):
+        await asyncio.sleep(int(args[0]))
 
-    def add(self, entity, *args):
+    async def add(self, parser, *args):
         if not self.vars.get(args[0]):
             self.vars[key] = "0"
 
@@ -566,7 +541,7 @@ class Parser:
         i += int(args[1])
         self.vars[args[0]] = str(i)
 
-    def sub(self, entity, *args):
+    async def sub(self, parser, *args):
         if not self.vars.get(args[0]):
             self.vars[args[0]] = "0"
 
@@ -574,7 +549,7 @@ class Parser:
         i -= int(args[1])
         self.vars[args[0]] = str(i)
 
-    def div(self, entity, *args):
+    async def div(self, parser, *args):
         if not self.vars.get(args[0]):
             self.vars[args[0]] = "0"
 
@@ -582,7 +557,7 @@ class Parser:
         i /= int(args[1])
         self.vars[args[0]] = str(i)
 
-    def mult(self, entity, *args):
+    async def mult(self, parser, *args):
         if not self.vars.get(args[0]):
             self.vars[args[0]] = "0"
 
@@ -590,11 +565,11 @@ class Parser:
         i *= int(args[1])
         self.vars[args[0]] = str(i)
 
-    def var(self, entity, *args):
+    async def var(self, parser, *args):
         try:
             if "=" in args[0]:
-                self.vars[args[0].split("=")[0]] = MogLibrary.parseMSymbol(
-                    self, entity, args[0].split("=")[1]
+                self.vars[args[0].split("=")[0]] = AsyncMogLibrary.parseMSymbol(self,
+                    parser, args[0].split("=")[1]
                 )
             else:
                 if len(args) == 1:
@@ -605,35 +580,54 @@ class Parser:
                     self.vars[args[0]] = ":".join(args[1:])
         except Exception as e:
             return f"{e}"
-
-    def local(self, entity, *args):
+        
+    async def insertReplacement(self, p, *args):
+        if len(args) == 2:
+            if p.parser.vars.get("repls", {}).get(args[0], {}).get("new"):
+                return p.parser.vars.get("repls", {}).get(args[0]).get("new")
+            repls = p.parser.vars.get("repls", {})
+            repls[args[0]] = {"alias": args[1], "new": ""}
+            p.parser.vars["repls"] = repls
+        return f"%{args[0]}% ({args[1].strip()})"
+    
+    async def local(self, parser, *args):
         try:
             if "=" in args[0]:
-                entity.vars[args[0].split("=")[0]] = MogLibrary.parseMSymbol(
-                    self, entity, args[0].split("=")[1]
+                parser.vars[args[0].split("=")[0]] = AsyncMogLibrary.parseMSymbol(self,
+                    parser, args[0].split("=")[1]
                 )
             else:
                 if len(args) == 1:
-                    return entity.vars[args[0]]
+                    return parser.vars[args[0]]
                 elif len(args) == 2:
-                    entity.vars[args[0]] = args[1]
+                    parser.vars[args[0]] = args[1]
                 else:
-                    entity.vars[args[0]] = ":".join(args[1:])
+                    parser.vars[args[0]] = ":".join(args[1:])
         except Exception as e:
             return f"{e}"
+        
+    async def getif(self, parser, *args):
+        key = args[0].split("=")[0]
+        value = args[0].split("=")[1]
+        if self.vars.get(key) == value:
+            return args[1]
 
-    def sleep(self, entity, *args):
-        time.sleep(int(args[0]))
+    async def getnot(self, parser, *args):
+        key = args[0].split("=")[0]
+        value = args[0].split("=")[1]
+        if self.vars.get(key) != value:
+            return args[1]
 
-    def eval(self, entity, *args):
+
+    async def eval(self, parser, *args):
         for entry in args:
-            body = f'def func(p, args):\n{textwrap.indent(entry, "  ")}'
+            body = f'async def func(p, args):\n{textwrap.indent(entry, "  ")}'
             env = {"p": self}
             exec(body, env)
-            return env["func"](self, [])
+            return await env["func"](parser, [])
 
 
-class Entity:
+class AsyncEntity:
     def __init__(self, parser, text):
         self._body = text
         self.body = text
@@ -645,7 +639,7 @@ class Entity:
         self.transient = False
         self.comments = []
 
-    def write(self, code):
+    async def write(self, code):
         self.body = code
         self.parsed = ""
         return self
@@ -660,7 +654,7 @@ class Entity:
         ):
             return True
 
-    def parse(self):
+    async def parse(self):
         self.parsed = ""
         for item in self.body.split("\n"):
             if item != "" and item != "\n":
@@ -676,8 +670,9 @@ class Entity:
                     call = self.parser.globals.get(name)
 
                     if call:
-                        args = MogLibrary.parseMSymbols(self.parser, self, other.split(";"))
-                        r = call(self, *args)
+                        args = AsyncMogLibrary.parseMSymbols(self.parser, self, other.split(";"))
+                        r = await call(self, *args)
+
                         if r:
                             item = item.replace("{" + c + "}", r)
                         else:
@@ -690,7 +685,7 @@ class Entity:
                 if item != "" and item != " " and item != "	" and item != "\n":
                     self.lines.append(item)
 
-        self.lines = MogLibrary.parseMSymbols(self.parser, self, self.lines)
+        self.lines = AsyncMogLibrary.parseMSymbols(self.parser, self, self.lines)
 
         for item in self.lines:
             if item != "" and item != " " and item != "	" and item != "\n":
