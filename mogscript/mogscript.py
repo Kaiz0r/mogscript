@@ -498,7 +498,10 @@ class Parser:
     
     def insert(self, body, ind=-1):
         return MogLibrary.insert(self, body, ind=-1)
-
+    
+    def addGlobal(self, name, call):
+        return MogLibrary.addGlobal(self, name, call)
+        
     def read(self, path):
         return MogLibrary.read(self, path)
 

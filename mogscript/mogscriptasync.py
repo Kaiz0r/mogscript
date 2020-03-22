@@ -477,6 +477,9 @@ class AsyncParser:
     def write(self, code):
         return AsyncMogLibrary.write(self, code)
     
+    def addGlobal(self, name, call):
+        return MogLibrary.addGlobal(self, name, call)
+    
     async def recheck(self, *args):
         return AsyncMogLibrary.recheck(self)
     
